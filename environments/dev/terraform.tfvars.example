@@ -1,0 +1,11 @@
+# Development Environment Configuration
+# Copy this file to terraform.tfvars and update with actual values
+
+catalog_name         = "dev_catalog"  # Will be overridden by ADO variable ORCA_CATALOG_NAME
+metadata_schema_name = "orca_metadata"
+runtime_schema_name  = "orca_runtime"
+environment          = "dev"
+
+# Change Data Feed Configuration
+enable_cdf_for_runtime  = true   # Enable CDC for runtime tables (recommended)
+enable_cdf_for_metadata = false  # Metadata tables typically don't need CDC

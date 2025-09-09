@@ -1,0 +1,119 @@
+trigger:
+  branches:
+    include:
+      - develop
+      - release/*
+      - main
+  paths:
+    include:
+      - 'tables/orca_catalog/**'
+      - 'modules/**'
+      - 'main.tf'
+      - 'variables.tf'
+      - 'azure-pipelines/**'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: databricks-common
+  - name: terraformVersion
+    value: '1.5.7'
+  - name: databricksProviderVersion
+    value: '1.38.0'
+
+stages:
+  # Development Deployment
+  - stage: DeployDev
+    displayName: 'Deploy ORCA DDL to Development'
+    condition: or(eq(variables['Build.SourceBranch'], 'refs/heads/develop'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'))
+    variables:
+      - group: databricks-dev-vars
+      - group: orca-ddl-dev-vars  # This group should contain ORCA_CATALOG_NAME and ORCA_METADATA_SCHEMA_NAME, ORCA_RUNTIME_SCHEMA_NAME
+    jobs:
+      - job: DeployTerraform
+        displayName: 'Deploy ORCA Tables to Dev'
+        steps:
+          - template: templates/terraform-deploy-steps.yml
+            parameters:
+              serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
+              environment: dev
+              catalogName: $(ORCA_CATALOG_NAME)
+              metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
+              runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
+              enableCdfForRuntime: true
+              enableCdfForMetadata: false
+
+  # Test Deployment
+  - stage: DeployTest
+    displayName: 'Deploy ORCA DDL to Test'
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
+    variables:
+      - group: databricks-test-vars
+      - group: orca-ddl-test-vars
+    jobs:
+      - job: DeployTerraform
+        displayName: 'Deploy ORCA Tables to Test'
+        steps:
+          - template: templates/terraform-deploy-steps.yml
+            parameters:
+              serviceConnection: 'cbs-data-test-mi-reporting'
+              environment: test
+              catalogName: $(ORCA_CATALOG_NAME)
+              metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
+              runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
+              enableCdfForRuntime: true
+              enableCdfForMetadata: false
+
+  # UAT Deployment
+  - stage: DeployUAT
+    displayName: 'Deploy ORCA DDL to UAT'
+    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))
+    dependsOn: DeployTest
+    variables:
+      - group: databricks-uat-vars
+      - group: orca-ddl-uat-vars
+    jobs:
+      - deployment: DeployTerraform
+        displayName: 'Deploy ORCA Tables to UAT'
+        environment: uat
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: templates/terraform-deploy-steps.yml
+                  parameters:
+                    serviceConnection: 'cbs-data-uat-mi-reporting'
+                    environment: uat
+                    catalogName: $(ORCA_CATALOG_NAME)
+                    metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
+                    runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
+                    enableCdfForRuntime: true
+                    enableCdfForMetadata: false
+
+  # Production Deployment
+  - stage: DeployProd
+    displayName: 'Deploy ORCA DDL to Production'
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+    variables:
+      - group: databricks-prod-vars
+      - group: orca-ddl-prod-vars
+    jobs:
+      - deployment: DeployTerraform
+        displayName: 'Deploy ORCA Tables to Production'
+        environment: prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - template: templates/terraform-deploy-steps.yml
+                  parameters:
+                    serviceConnection: 'cbs-data-prod-mi-reporting'
+                    environment: prod
+                    catalogName: $(ORCA_CATALOG_NAME)
+                    metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
+                    runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
+                    enableCdfForRuntime: true
+                    enableCdfForMetadata: false
