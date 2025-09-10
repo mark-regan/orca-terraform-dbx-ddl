@@ -89,6 +89,16 @@ steps:
         echo "Databricks Host: ${{ parameters.databricksHost }}"
   
   - script: |
+      # Debug: Verify environment variables are set
+      echo "Verifying ARM environment variables..."
+      if [ -z "$ARM_CLIENT_ID" ]; then echo "ERROR: ARM_CLIENT_ID is not set"; exit 1; fi
+      if [ -z "$ARM_CLIENT_SECRET" ]; then echo "ERROR: ARM_CLIENT_SECRET is not set"; exit 1; fi
+      if [ -z "$ARM_TENANT_ID" ]; then echo "ERROR: ARM_TENANT_ID is not set"; exit 1; fi
+      if [ -z "$ARM_SUBSCRIPTION_ID" ]; then echo "ERROR: ARM_SUBSCRIPTION_ID is not set"; exit 1; fi
+      echo "ARM_CLIENT_ID is set"
+      echo "ARM_TENANT_ID: $ARM_TENANT_ID"
+      echo "ARM_SUBSCRIPTION_ID: $ARM_SUBSCRIPTION_ID"
+      
       # Initialize Terraform with Azure backend using exported credentials
       echo "Initializing Terraform..."
       terraform init \
@@ -103,6 +113,8 @@ steps:
       ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
       ARM_TENANT_ID: $(ARM_TENANT_ID)
       ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+      ARM_USE_CLI: "false"
+      ARM_USE_MSI: "false"
 
   - script: |
       # Validate Terraform configuration
@@ -115,6 +127,8 @@ steps:
       ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
       ARM_TENANT_ID: $(ARM_TENANT_ID)
       ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+      ARM_USE_CLI: "false"
+      ARM_USE_MSI: "false"
       DATABRICKS_HOST: $(DATABRICKS_HOST)
 
   - script: |
@@ -142,6 +156,8 @@ steps:
       ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
       ARM_TENANT_ID: $(ARM_TENANT_ID)
       ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
+      ARM_USE_CLI: "false"
+      ARM_USE_MSI: "false"
       DATABRICKS_HOST: $(DATABRICKS_HOST)
 
 
