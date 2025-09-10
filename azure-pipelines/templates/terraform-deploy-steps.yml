@@ -103,6 +103,7 @@ steps:
         
         # Initialize Terraform with Azure backend
         echo "Initializing Terraform with Azure backend..."
+        cd $(System.DefaultWorkingDirectory)
         terraform init \
           -backend-config="resource_group_name=$(terraform_resource_group)" \
           -backend-config="storage_account_name=$(terraform_storage_account)" \
@@ -112,8 +113,6 @@ steps:
           -backend-config="subscription_id=$ARM_SUBSCRIPTION_ID" \
           -backend-config="tenant_id=$ARM_TENANT_ID" \
           -backend-config="client_id=$ARM_CLIENT_ID"
-
-        workingDirectory: $(System.DefaultWorkingDirectory)
 
   - task: AzureCLI@2
     displayName: 'Terraform Validate'
@@ -130,8 +129,8 @@ steps:
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
         # Validate Terraform configuration
+        cd $(System.DefaultWorkingDirectory)
         terraform validate
-    workingDirectory: $(System.DefaultWorkingDirectory)
 
   - task: AzureCLI@2
     displayName: 'Terraform Plan'
@@ -148,6 +147,7 @@ steps:
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
         # Plan Terraform changes
+        cd $(System.DefaultWorkingDirectory)
         terraform plan \
         -var="orca_catalog=${{ parameters.orcaCatalog }}" \
         -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
@@ -159,11 +159,10 @@ steps:
         -var="environment=${{ parameters.environment }}" \
         -var="enable_cdf_for_runtime=${{ parameters.enableCdfForRuntime }}" \
         -var="enable_cdf_for_metadata=${{ parameters.enableCdfForMetadata }}" \
-        -var="storage_account_name=$(parameters.storageAccountName)" \
+        -var="storage_account_name=${{ parameters.storageAccountName }}" \
         -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
         -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
         -out=tfplan
-    workingDirectory: $(System.DefaultWorkingDirectory)
 
 
 #  - script: |
