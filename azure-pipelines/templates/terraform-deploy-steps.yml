@@ -70,52 +70,35 @@ steps:
     displayName: 'Terraform Init'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
-      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        echo "=== Checking Authentication Method ==="
+        echo "=== Using Managed Identity via Azure CLI Context ==="
         
-        # Check what type of authentication we have
-        if [ ! -z "$servicePrincipalId" ]; then
-          echo "Service Principal ID detected: ${servicePrincipalId:0:8}..."
-          
-          # Check if we have the key
-          if [ ! -z "$servicePrincipalKey" ]; then
-            echo "Service Principal Key is available"
-            # Use service principal authentication
-            export ARM_CLIENT_ID=$servicePrincipalId
-            export ARM_CLIENT_SECRET=$servicePrincipalKey
-            export ARM_TENANT_ID=$tenantId
-            export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-            export ARM_USE_CLI=false
-            export ARM_USE_MSI=false
-            echo "Using Service Principal authentication"
-          else
-            echo "Service Principal Key is NOT available"
-            echo "Attempting to use Managed Identity instead..."
-            
-            # Try managed identity
-            export ARM_USE_MSI=true
-            export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-            export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-            export ARM_USE_CLI=false
-            
-            # For managed identity, we might need the client ID
-            if [ ! -z "$servicePrincipalId" ]; then
-              export ARM_CLIENT_ID=$servicePrincipalId
-            fi
-            echo "Using Managed Identity authentication"
-          fi
-        else
-          echo "No service principal detected, trying managed identity"
-          export ARM_USE_MSI=true
-          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-          export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-          export ARM_USE_CLI=false
+        # Get current Azure context details
+        CURRENT_SUBSCRIPTION=$(az account show --query id -o tsv)
+        CURRENT_TENANT=$(az account show --query tenantId -o tsv)
+        
+        echo "Current Subscription: $CURRENT_SUBSCRIPTION"
+        echo "Current Tenant: $CURRENT_TENANT"
+        
+        # Get the access token from the current Azure CLI session
+        # This token is from the managed identity authenticated session
+        ACCESS_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+        
+        if [ -z "$ACCESS_TOKEN" ]; then
+          echo "ERROR: Failed to get access token"
+          exit 1
         fi
         
-        # Set Databricks environment variable
+        echo "Successfully obtained access token from managed identity session"
+        
+        # Set environment variables for Terraform
+        # Use OIDC/token authentication instead of service principal
+        export ARM_USE_OIDC=true
+        export ARM_TENANT_ID=$CURRENT_TENANT
+        export ARM_SUBSCRIPTION_ID=$CURRENT_SUBSCRIPTION
+        export ARM_ACCESS_TOKEN=$ACCESS_TOKEN
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
         # Log configuration
@@ -125,46 +108,34 @@ steps:
         echo "Backend Container: $(terraform_container)"
         echo "Backend RG: $(terraform_resource_group)"
         echo "Databricks Host: ${DATABRICKS_HOST}"
-        echo "ARM_USE_MSI: ${ARM_USE_MSI}"
-        echo "ARM_USE_CLI: ${ARM_USE_CLI}"
-        echo "ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
         
-        # Initialize Terraform
+        # Initialize Terraform with Azure backend
         echo "=== Running Terraform Init ==="
         cd $(System.DefaultWorkingDirectory)
         
+        # Use Azure AD auth for the backend
         terraform init \
           -backend-config="resource_group_name=$(terraform_resource_group)" \
           -backend-config="storage_account_name=$(terraform_storage_account)" \
           -backend-config="container_name=$(terraform_container)" \
-          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
+          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate" \
+          -backend-config="use_azuread_auth=true"
 
   - task: AzureCLI@2
     displayName: 'Terraform Validate'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
-      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Setup authentication (same as init)
-        if [ ! -z "$servicePrincipalKey" ]; then
-          export ARM_CLIENT_ID=$servicePrincipalId
-          export ARM_CLIENT_SECRET=$servicePrincipalKey
-          export ARM_TENANT_ID=$tenantId
-          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-          export ARM_USE_CLI=false
-          export ARM_USE_MSI=false
-        else
-          export ARM_USE_MSI=true
-          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-          export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-          export ARM_USE_CLI=false
-          if [ ! -z "$servicePrincipalId" ]; then
-            export ARM_CLIENT_ID=$servicePrincipalId
-          fi
-        fi
+        # Get access token from managed identity session
+        ACCESS_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
         
+        # Set environment variables for Terraform
+        export ARM_USE_OIDC=true
+        export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        export ARM_ACCESS_TOKEN=$ACCESS_TOKEN
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
         # Validate Terraform configuration
@@ -176,28 +147,17 @@ steps:
     displayName: 'Terraform Plan'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
-      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Setup authentication (same as init)
-        if [ ! -z "$servicePrincipalKey" ]; then
-          export ARM_CLIENT_ID=$servicePrincipalId
-          export ARM_CLIENT_SECRET=$servicePrincipalKey
-          export ARM_TENANT_ID=$tenantId
-          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-          export ARM_USE_CLI=false
-          export ARM_USE_MSI=false
-        else
-          export ARM_USE_MSI=true
-          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-          export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-          export ARM_USE_CLI=false
-          if [ ! -z "$servicePrincipalId" ]; then
-            export ARM_CLIENT_ID=$servicePrincipalId
-          fi
-        fi
+        # Get access token from managed identity session
+        ACCESS_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
         
+        # Set environment variables for Terraform
+        export ARM_USE_OIDC=true
+        export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        export ARM_ACCESS_TOKEN=$ACCESS_TOKEN
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
         # Plan Terraform changes
