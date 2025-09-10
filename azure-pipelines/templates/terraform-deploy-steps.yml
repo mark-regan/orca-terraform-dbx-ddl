@@ -3,6 +3,9 @@ parameters:
     type: string
   - name: databricksHost
     type: string
+  - name: databricksAccountId
+    type: string
+    default: ''
   - name: environment
     type: string
   - name: adGroupEnvironment
@@ -99,6 +102,8 @@ steps:
       inlineScript: |
         echo "=== Setting up Terraform with Managed Identity Service Connection ==="
         cd $(System.DefaultWorkingDirectory)
+        # Ensure subscription context available to TF for OIDC flows
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         
         terraform init \
           -backend-config="resource_group_name=$(terraform_resource_group)" \
@@ -106,7 +111,11 @@ steps:
           -backend-config="container_name=$(terraform_container)" \
           -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate" 
     env:
-      ARM_USE_AZREAD: true
+      # Enable Azure OIDC auth for Terraform backend/provider
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: $(servicePrincipalId)
+      ARM_TENANT_ID: $(tenantId)
+      ARM_OIDC_TOKEN: $(idToken)
 
   - task: AzureCLI@2
     displayName: 'Terraform Validate'
@@ -119,7 +128,13 @@ steps:
         # The Databricks provider will use Azure CLI authentication automatically
         echo "Validating Terraform configuration..."
         cd $(System.DefaultWorkingDirectory)
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         terraform validate
+    env:
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: $(servicePrincipalId)
+      ARM_TENANT_ID: $(tenantId)
+      ARM_OIDC_TOKEN: $(idToken)
 
   - task: AzureCLI@2
     displayName: 'Terraform Plan'
@@ -132,6 +147,7 @@ steps:
         # The Databricks provider will use Azure CLI authentication automatically
         echo "Planning Terraform changes..."
         cd $(System.DefaultWorkingDirectory)
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         terraform plan \
           -var="orca_catalog=${{ parameters.orcaCatalog }}" \
           -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
@@ -147,7 +163,13 @@ steps:
           -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
           -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
           -var="databricks_host=${{ parameters.databricksHost }}" \
+          -var="databricks_account_id=${{ parameters.databricksAccountId }}" \
           -out=tfplan
+    env:
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: $(servicePrincipalId)
+      ARM_TENANT_ID: $(tenantId)
+      ARM_OIDC_TOKEN: $(idToken)
 
 
 #  - script: |

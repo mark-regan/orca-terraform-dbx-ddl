@@ -17,13 +17,10 @@ terraform {
 provider "databricks" {
   # Provider configuration for Azure Databricks
   # Will use Azure CLI authentication from the pipeline context
-  host = var.databricksHost 
-  account_id = var.serviceConnection 
-  alias = "account"
+  host = var.databricks_host
 }
 
 provider "azurerm" {
-  storage_use_azread = true
   features {}
 }
 
@@ -42,4 +39,3 @@ provider "azurerm" {
 # ================================================================================
 # Catalogs and their schemas are defined in catalogs.tf
 # This includes the new catalog module with grant support
-

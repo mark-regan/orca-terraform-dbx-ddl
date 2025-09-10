@@ -108,3 +108,9 @@ variable "databricks_host" {
   type        = string
 }
 
+# Optional: Databricks Account-level provider support
+variable "databricks_account_id" {
+  description = "Databricks account ID for account-scoped APIs (optional)"
+  type        = string
+  default     = ""
+}
