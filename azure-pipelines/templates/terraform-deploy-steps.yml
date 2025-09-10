@@ -74,80 +74,56 @@ steps:
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Debug: Check if service principal variables are available
-        echo "=== Checking Service Principal Variables ==="
-        echo "servicePrincipalId: ${servicePrincipalId:0:8}..." || echo "servicePrincipalId is not set"
-        echo "tenantId: ${tenantId}" || echo "tenantId is not set"
-        if [ -z "$servicePrincipalKey" ]; then
-          echo "ERROR: servicePrincipalKey is not set"
+        # Since servicePrincipalKey might not be available, let's use Azure CLI context
+        echo "=== Using Azure CLI Authentication Context ==="
+        
+        # Get current Azure context details
+        CURRENT_SUBSCRIPTION=$(az account show --query id -o tsv)
+        CURRENT_TENANT=$(az account show --query tenantId -o tsv)
+        
+        echo "Current Subscription: $CURRENT_SUBSCRIPTION"
+        echo "Current Tenant: $CURRENT_TENANT"
+        
+        # Check if we're authenticated
+        if [ -z "$CURRENT_SUBSCRIPTION" ]; then
+          echo "ERROR: Not authenticated to Azure"
           exit 1
-        else
-          echo "servicePrincipalKey: [REDACTED - length ${#servicePrincipalKey}]"
         fi
         
-        # Export Azure credentials for Terraform
-        export ARM_CLIENT_ID=$servicePrincipalId
-        export ARM_CLIENT_SECRET=$servicePrincipalKey
-        export ARM_TENANT_ID=$tenantId
-        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        export ARM_USE_CLI=false
-        export ARM_USE_MSI=false
+        # Set Databricks environment variable
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
-        # Debug: Verify exported variables
-        echo "=== Verifying Exported ARM Variables ==="
-        echo "ARM_CLIENT_ID: ${ARM_CLIENT_ID:0:8}..." || echo "ARM_CLIENT_ID is not set"
-        echo "ARM_TENANT_ID: ${ARM_TENANT_ID}" || echo "ARM_TENANT_ID is not set"
-        echo "ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}" || echo "ARM_SUBSCRIPTION_ID is not set"
-        if [ -z "$ARM_CLIENT_SECRET" ]; then
-          echo "ERROR: ARM_CLIENT_SECRET is not set"
-          exit 1
-        else
-          echo "ARM_CLIENT_SECRET: [REDACTED - length ${#ARM_CLIENT_SECRET}]"
-        fi
-        echo "DATABRICKS_HOST: ${DATABRICKS_HOST}"
-        
-        # Set variables for subsequent tasks
-        echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$servicePrincipalId"
-        echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET]$servicePrincipalKey"
-        echo "##vso[task.setvariable variable=ARM_TENANT_ID]$tenantId"
-        echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$(az account show --query id -o tsv)"
-        echo "##vso[task.setvariable variable=DATABRICKS_HOST]${{ parameters.databricksHost }}"
-        
-        # Log configuration (without sensitive data)
-        echo "=== Backend Configuration ==="
+        # Log configuration
+        echo "=== Configuration ==="
         echo "Environment: ${{ parameters.environment }}"
         echo "Backend Storage: $(terraform_storage_account)"
         echo "Backend Container: $(terraform_container)"
         echo "Backend RG: $(terraform_resource_group)"
+        echo "Databricks Host: ${DATABRICKS_HOST}"
         
-        # Initialize Terraform with Azure backend
-        echo "=== Running Terraform Init ==="
+        # Initialize Terraform - it will use Azure CLI authentication
+        echo "=== Running Terraform Init with Azure CLI Authentication ==="
         cd $(System.DefaultWorkingDirectory)
+        
+        # Terraform will automatically use az cli when available
         terraform init \
           -backend-config="resource_group_name=$(terraform_resource_group)" \
           -backend-config="storage_account_name=$(terraform_storage_account)" \
           -backend-config="container_name=$(terraform_container)" \
-          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
+          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate" \
+          -backend-config="use_azuread_auth=true"
 
   - task: AzureCLI@2
     displayName: 'Terraform Validate'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
-      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Export Azure credentials for Terraform
-        export ARM_CLIENT_ID=$servicePrincipalId
-        export ARM_CLIENT_SECRET=$servicePrincipalKey
-        export ARM_TENANT_ID=$tenantId
-        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        export ARM_USE_CLI=false
-        export ARM_USE_MSI=false
+        # Set Databricks environment variable
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
-        # Validate Terraform configuration
+        # Validate Terraform configuration using Azure CLI context
         echo "Validating Terraform configuration..."
         cd $(System.DefaultWorkingDirectory)
         terraform validate
@@ -156,20 +132,13 @@ steps:
     displayName: 'Terraform Plan'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
-      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Export Azure credentials for Terraform
-        export ARM_CLIENT_ID=$servicePrincipalId
-        export ARM_CLIENT_SECRET=$servicePrincipalKey
-        export ARM_TENANT_ID=$tenantId
-        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        export ARM_USE_CLI=false
-        export ARM_USE_MSI=false
+        # Set Databricks environment variable
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
-        # Plan Terraform changes
+        # Plan Terraform changes using Azure CLI context
         echo "Planning Terraform changes..."
         cd $(System.DefaultWorkingDirectory)
         terraform plan \
