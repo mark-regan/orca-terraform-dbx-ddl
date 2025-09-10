@@ -58,3 +58,48 @@ variable "gold_access_connector_id" {
   default     = ""
 }
 
+variable "storage_connector_id" {
+  description = "Azure Access Connector resource ID for storage credential"
+  type        = string
+}
+
+variable "ad_group_environment" {
+  description = "Azure AD group environment suffix (e.g., DEV, UAT, PROD)"
+  type        = string
+}
+
+variable "orca_catalog" {
+  description = "ORCA catalog name"
+  type        = string
+}
+
+variable "orca_metadata_schema" {
+  description = "ORCA metadata schema name"
+  type        = string
+}
+
+variable "orca_runtime_schema" {
+  description = "ORCA runtime schema name"
+  type        = string
+}
+
+variable "bronze_catalog" {
+  description = "Bronze catalog name"
+  type        = string
+}
+
+variable "silver_catalog" {
+  description = "Silver catalog name"
+  type        = string
+}
+
+variable "gold_catalog" {
+  description = "Gold catalog name"
+  type        = string
+}
+
+variable "platinum_catalog" {
+  description = "Platinum catalog name"
+  type        = string
+}
+

@@ -41,7 +41,7 @@ module "storage_credentials" {
 
   name                = each.value.name
   comment             = each.value.comment
-  access_connector_id = each.value.storage_connector_id
+  access_connector_id = each.value.access_connector_id
   grants              = lookup(each.value, "grants", [])
   owner               = lookup(each.value, "owner", null)
   force_destroy       = lookup(each.value, "force_destroy", false)
