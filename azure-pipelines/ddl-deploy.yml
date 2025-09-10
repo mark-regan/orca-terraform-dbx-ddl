@@ -23,7 +23,7 @@ pool:
 variables:
   - group: dbx-common
   - name: terraformVersion
-    value: '1.5.7'
+    value: '1.13.1'
   - name: databricksProviderVersion
     value: '1.38.0'
 
