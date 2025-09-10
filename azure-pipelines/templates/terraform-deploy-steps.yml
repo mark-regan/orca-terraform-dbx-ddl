@@ -67,98 +67,126 @@ steps:
       TERRAFORM_VERSION: $(terraformVersion)
 
   - task: AzureCLI@2
-    displayName: 'Export Azure Credentials for Terraform'
+    displayName: 'Terraform Init'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
       addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Export Azure credentials as pipeline variables for subsequent tasks
+        # Debug: Check if service principal variables are available
+        echo "=== Checking Service Principal Variables ==="
+        echo "servicePrincipalId: ${servicePrincipalId:0:8}..." || echo "servicePrincipalId is not set"
+        echo "tenantId: ${tenantId}" || echo "tenantId is not set"
+        if [ -z "$servicePrincipalKey" ]; then
+          echo "ERROR: servicePrincipalKey is not set"
+          exit 1
+        else
+          echo "servicePrincipalKey: [REDACTED - length ${#servicePrincipalKey}]"
+        fi
+        
+        # Export Azure credentials for Terraform
+        export ARM_CLIENT_ID=$servicePrincipalId
+        export ARM_CLIENT_SECRET=$servicePrincipalKey
+        export ARM_TENANT_ID=$tenantId
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        export ARM_USE_CLI=false
+        export ARM_USE_MSI=false
+        export DATABRICKS_HOST=${{ parameters.databricksHost }}
+        
+        # Debug: Verify exported variables
+        echo "=== Verifying Exported ARM Variables ==="
+        echo "ARM_CLIENT_ID: ${ARM_CLIENT_ID:0:8}..." || echo "ARM_CLIENT_ID is not set"
+        echo "ARM_TENANT_ID: ${ARM_TENANT_ID}" || echo "ARM_TENANT_ID is not set"
+        echo "ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}" || echo "ARM_SUBSCRIPTION_ID is not set"
+        if [ -z "$ARM_CLIENT_SECRET" ]; then
+          echo "ERROR: ARM_CLIENT_SECRET is not set"
+          exit 1
+        else
+          echo "ARM_CLIENT_SECRET: [REDACTED - length ${#ARM_CLIENT_SECRET}]"
+        fi
+        echo "DATABRICKS_HOST: ${DATABRICKS_HOST}"
+        
+        # Set variables for subsequent tasks
         echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$servicePrincipalId"
-        echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET;issecret=true]$servicePrincipalKey"
+        echo "##vso[task.setvariable variable=ARM_CLIENT_SECRET]$servicePrincipalKey"
         echo "##vso[task.setvariable variable=ARM_TENANT_ID]$tenantId"
         echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$(az account show --query id -o tsv)"
         echo "##vso[task.setvariable variable=DATABRICKS_HOST]${{ parameters.databricksHost }}"
         
         # Log configuration (without sensitive data)
+        echo "=== Backend Configuration ==="
         echo "Environment: ${{ parameters.environment }}"
         echo "Backend Storage: $(terraform_storage_account)"
         echo "Backend Container: $(terraform_container)"
         echo "Backend RG: $(terraform_resource_group)"
-        echo "Databricks Host: ${{ parameters.databricksHost }}"
-  
-  - script: |
-      # Debug: Verify environment variables are set
-      echo "Verifying ARM environment variables..."
-      if [ -z "$ARM_CLIENT_ID" ]; then echo "ERROR: ARM_CLIENT_ID is not set"; exit 1; fi
-      if [ -z "$ARM_CLIENT_SECRET" ]; then echo "ERROR: ARM_CLIENT_SECRET is not set"; exit 1; fi
-      if [ -z "$ARM_TENANT_ID" ]; then echo "ERROR: ARM_TENANT_ID is not set"; exit 1; fi
-      if [ -z "$ARM_SUBSCRIPTION_ID" ]; then echo "ERROR: ARM_SUBSCRIPTION_ID is not set"; exit 1; fi
-      echo "ARM_CLIENT_ID is set"
-      echo "ARM_TENANT_ID: $ARM_TENANT_ID"
-      echo "ARM_SUBSCRIPTION_ID: $ARM_SUBSCRIPTION_ID"
-      
-      # Initialize Terraform with Azure backend using exported credentials
-      echo "Initializing Terraform..."
-      terraform init \
-        -backend-config="resource_group_name=$(terraform_resource_group)" \
-        -backend-config="storage_account_name=$(terraform_storage_account)" \
-        -backend-config="container_name=$(terraform_container)" \
-        -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
-    displayName: 'Terraform Init'
-    workingDirectory: $(System.DefaultWorkingDirectory)
-    env:
-      ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-      ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-      ARM_TENANT_ID: $(ARM_TENANT_ID)
-      ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-      ARM_USE_CLI: "false"
-      ARM_USE_MSI: "false"
+        
+        # Initialize Terraform with Azure backend
+        echo "=== Running Terraform Init ==="
+        cd $(System.DefaultWorkingDirectory)
+        terraform init \
+          -backend-config="resource_group_name=$(terraform_resource_group)" \
+          -backend-config="storage_account_name=$(terraform_storage_account)" \
+          -backend-config="container_name=$(terraform_container)" \
+          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
 
-  - script: |
-      # Validate Terraform configuration
-      echo "Validating Terraform configuration..."
-      terraform validate
+  - task: AzureCLI@2
     displayName: 'Terraform Validate'
-    workingDirectory: $(System.DefaultWorkingDirectory)
-    env:
-      ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-      ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-      ARM_TENANT_ID: $(ARM_TENANT_ID)
-      ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-      ARM_USE_CLI: "false"
-      ARM_USE_MSI: "false"
-      DATABRICKS_HOST: $(DATABRICKS_HOST)
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      addSpnToEnvironment: true
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        # Export Azure credentials for Terraform
+        export ARM_CLIENT_ID=$servicePrincipalId
+        export ARM_CLIENT_SECRET=$servicePrincipalKey
+        export ARM_TENANT_ID=$tenantId
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        export ARM_USE_CLI=false
+        export ARM_USE_MSI=false
+        export DATABRICKS_HOST=${{ parameters.databricksHost }}
+        
+        # Validate Terraform configuration
+        echo "Validating Terraform configuration..."
+        cd $(System.DefaultWorkingDirectory)
+        terraform validate
 
-  - script: |
-      # Plan Terraform changes
-      echo "Planning Terraform changes..."
-      terraform plan \
-        -var="orca_catalog=${{ parameters.orcaCatalog }}" \
-        -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
-        -var="orca_runtime_schema=${{ parameters.orcaRuntimeSchema }}" \
-        -var="bronze_catalog=${{ parameters.bronzeCatalog }}" \
-        -var="silver_catalog=${{ parameters.silverCatalog }}" \
-        -var="gold_catalog=${{ parameters.goldCatalog }}" \
-        -var="platinum_catalog=${{ parameters.platinumCatalog }}" \
-        -var="environment=${{ parameters.environment }}" \
-        -var="enable_cdf_for_runtime=${{ parameters.enableCdfForRuntime }}" \
-        -var="enable_cdf_for_metadata=${{ parameters.enableCdfForMetadata }}" \
-        -var="storage_account_name=${{ parameters.storageAccountName }}" \
-        -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
-        -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
-        -out=tfplan
+  - task: AzureCLI@2
     displayName: 'Terraform Plan'
-    workingDirectory: $(System.DefaultWorkingDirectory)
-    env:
-      ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-      ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-      ARM_TENANT_ID: $(ARM_TENANT_ID)
-      ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-      ARM_USE_CLI: "false"
-      ARM_USE_MSI: "false"
-      DATABRICKS_HOST: $(DATABRICKS_HOST)
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      addSpnToEnvironment: true
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        # Export Azure credentials for Terraform
+        export ARM_CLIENT_ID=$servicePrincipalId
+        export ARM_CLIENT_SECRET=$servicePrincipalKey
+        export ARM_TENANT_ID=$tenantId
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        export ARM_USE_CLI=false
+        export ARM_USE_MSI=false
+        export DATABRICKS_HOST=${{ parameters.databricksHost }}
+        
+        # Plan Terraform changes
+        echo "Planning Terraform changes..."
+        cd $(System.DefaultWorkingDirectory)
+        terraform plan \
+          -var="orca_catalog=${{ parameters.orcaCatalog }}" \
+          -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
+          -var="orca_runtime_schema=${{ parameters.orcaRuntimeSchema }}" \
+          -var="bronze_catalog=${{ parameters.bronzeCatalog }}" \
+          -var="silver_catalog=${{ parameters.silverCatalog }}" \
+          -var="gold_catalog=${{ parameters.goldCatalog }}" \
+          -var="platinum_catalog=${{ parameters.platinumCatalog }}" \
+          -var="environment=${{ parameters.environment }}" \
+          -var="enable_cdf_for_runtime=${{ parameters.enableCdfForRuntime }}" \
+          -var="enable_cdf_for_metadata=${{ parameters.enableCdfForMetadata }}" \
+          -var="storage_account_name=${{ parameters.storageAccountName }}" \
+          -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
+          -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
+          -out=tfplan
 
 
 #  - script: |
