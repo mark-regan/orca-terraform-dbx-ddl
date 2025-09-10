@@ -6,6 +6,10 @@ terraform {
       source  = "databricks/databricks"
       version = ">= 1.38.0"
     }
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "=4.1.0"
+    }
   }
 
   backend "azurerm" {
@@ -15,6 +19,11 @@ terraform {
 
 provider "databricks" {
   # Provider configuration will use environment variables or Azure authentication
+  features = {}
+}
+
+provider "azurerm" {
+  features = {}
 }
 
 # ================================================================================
