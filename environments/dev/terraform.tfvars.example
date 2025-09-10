@@ -1,11 +1,23 @@
 # Development Environment Configuration
-# Copy this file to terraform.tfvars and update with actual values
 
-catalog_name         = "dev_catalog"  # Will be overridden by ADO variable ORCA_CATALOG_NAME
+environment = "dev"
+
+# Storage Account Configuration
+storage_account_name = "devdatalake"
+
+# Access Connector Resource IDs for Managed Identities
+bronze_access_connector_id = "/subscriptions/xxx/resourceGroups/rg-dev/providers/Microsoft.Databricks/accessConnectors/bronze-connector"
+silver_access_connector_id = "/subscriptions/xxx/resourceGroups/rg-dev/providers/Microsoft.Databricks/accessConnectors/silver-connector"
+gold_access_connector_id   = "/subscriptions/xxx/resourceGroups/rg-dev/providers/Microsoft.Databricks/accessConnectors/gold-connector"
+
+# ORCA Catalog Configuration (for backward compatibility)
+# Set to empty string to use new catalog module instead
+catalog_name = "dev_catalog"
+
+# Schema Names
 metadata_schema_name = "orca_metadata"
 runtime_schema_name  = "orca_runtime"
-environment          = "dev"
 
 # Change Data Feed Configuration
-enable_cdf_for_runtime  = true   # Enable CDC for runtime tables (recommended)
-enable_cdf_for_metadata = false  # Metadata tables typically don't need CDC
+enable_cdf_for_runtime  = false
+enable_cdf_for_metadata = false

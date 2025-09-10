@@ -15,6 +15,18 @@ parameters:
   - name: enableCdfForMetadata
     type: boolean
     default: false
+  - name: storageAccountName
+    type: string
+    default: ''
+  - name: bronzeAccessConnectorId
+    type: string
+    default: ''
+  - name: silverAccessConnectorId
+    type: string
+    default: ''
+  - name: goldAccessConnectorId
+    type: string
+    default: ''
 
 steps:
   - task: UsePythonVersion@0
@@ -77,6 +89,10 @@ steps:
         -var="environment=${{ parameters.environment }}" \
         -var="enable_cdf_for_runtime=${{ parameters.enableCdfForRuntime }}" \
         -var="enable_cdf_for_metadata=${{ parameters.enableCdfForMetadata }}" \
+        -var="storage_account_name=$(STORAGE_ACCOUNT_NAME)" \
+        -var="bronze_access_connector_id=$(BRONZE_ACCESS_CONNECTOR_ID)" \
+        -var="silver_access_connector_id=$(SILVER_ACCESS_CONNECTOR_ID)" \
+        -var="gold_access_connector_id=$(GOLD_ACCESS_CONNECTOR_ID)" \
         -out=tfplan
     displayName: 'Terraform Plan'
     workingDirectory: $(System.DefaultWorkingDirectory)

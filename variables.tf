@@ -1,6 +1,7 @@
 variable "catalog_name" {
-  description = "The Unity Catalog name for ORCA tables"
+  description = "The Unity Catalog name for ORCA tables (for backward compatibility)"
   type        = string
+  default     = ""
 }
 
 variable "metadata_schema_name" {
@@ -31,3 +32,29 @@ variable "enable_cdf_for_metadata" {
   type        = bool
   default     = false
 }
+
+# Azure Storage Variables
+variable "storage_account_name" {
+  description = "Azure Storage Account name for data lake"
+  type        = string
+}
+
+# Access Connector Variables for Managed Identities
+variable "bronze_access_connector_id" {
+  description = "Azure Access Connector resource ID for Bronze layer"
+  type        = string
+  default     = ""
+}
+
+variable "silver_access_connector_id" {
+  description = "Azure Access Connector resource ID for Silver layer"
+  type        = string
+  default     = ""
+}
+
+variable "gold_access_connector_id" {
+  description = "Azure Access Connector resource ID for Gold layer"
+  type        = string
+  default     = ""
+}
+
