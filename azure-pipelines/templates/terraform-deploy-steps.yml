@@ -74,20 +74,45 @@ steps:
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Since servicePrincipalKey might not be available, let's use Azure CLI context
-        echo "=== Using Azure CLI Authentication Context ==="
+        echo "=== Checking Authentication Method ==="
         
-        # Get current Azure context details
-        CURRENT_SUBSCRIPTION=$(az account show --query id -o tsv)
-        CURRENT_TENANT=$(az account show --query tenantId -o tsv)
-        
-        echo "Current Subscription: $CURRENT_SUBSCRIPTION"
-        echo "Current Tenant: $CURRENT_TENANT"
-        
-        # Check if we're authenticated
-        if [ -z "$CURRENT_SUBSCRIPTION" ]; then
-          echo "ERROR: Not authenticated to Azure"
-          exit 1
+        # Check what type of authentication we have
+        if [ ! -z "$servicePrincipalId" ]; then
+          echo "Service Principal ID detected: ${servicePrincipalId:0:8}..."
+          
+          # Check if we have the key
+          if [ ! -z "$servicePrincipalKey" ]; then
+            echo "Service Principal Key is available"
+            # Use service principal authentication
+            export ARM_CLIENT_ID=$servicePrincipalId
+            export ARM_CLIENT_SECRET=$servicePrincipalKey
+            export ARM_TENANT_ID=$tenantId
+            export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+            export ARM_USE_CLI=false
+            export ARM_USE_MSI=false
+            echo "Using Service Principal authentication"
+          else
+            echo "Service Principal Key is NOT available"
+            echo "Attempting to use Managed Identity instead..."
+            
+            # Try managed identity
+            export ARM_USE_MSI=true
+            export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+            export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+            export ARM_USE_CLI=false
+            
+            # For managed identity, we might need the client ID
+            if [ ! -z "$servicePrincipalId" ]; then
+              export ARM_CLIENT_ID=$servicePrincipalId
+            fi
+            echo "Using Managed Identity authentication"
+          fi
+        else
+          echo "No service principal detected, trying managed identity"
+          export ARM_USE_MSI=true
+          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+          export ARM_USE_CLI=false
         fi
         
         # Set Databricks environment variable
@@ -100,30 +125,49 @@ steps:
         echo "Backend Container: $(terraform_container)"
         echo "Backend RG: $(terraform_resource_group)"
         echo "Databricks Host: ${DATABRICKS_HOST}"
+        echo "ARM_USE_MSI: ${ARM_USE_MSI}"
+        echo "ARM_USE_CLI: ${ARM_USE_CLI}"
+        echo "ARM_SUBSCRIPTION_ID: ${ARM_SUBSCRIPTION_ID}"
         
-        # Initialize Terraform - it will use Azure CLI authentication
-        echo "=== Running Terraform Init with Azure CLI Authentication ==="
+        # Initialize Terraform
+        echo "=== Running Terraform Init ==="
         cd $(System.DefaultWorkingDirectory)
         
-        # Terraform will automatically use az cli when available
         terraform init \
           -backend-config="resource_group_name=$(terraform_resource_group)" \
           -backend-config="storage_account_name=$(terraform_storage_account)" \
           -backend-config="container_name=$(terraform_container)" \
-          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate" \
-          -backend-config="use_azuread_auth=true"
+          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
 
   - task: AzureCLI@2
     displayName: 'Terraform Validate'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
+      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Set Databricks environment variable
+        # Setup authentication (same as init)
+        if [ ! -z "$servicePrincipalKey" ]; then
+          export ARM_CLIENT_ID=$servicePrincipalId
+          export ARM_CLIENT_SECRET=$servicePrincipalKey
+          export ARM_TENANT_ID=$tenantId
+          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          export ARM_USE_CLI=false
+          export ARM_USE_MSI=false
+        else
+          export ARM_USE_MSI=true
+          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+          export ARM_USE_CLI=false
+          if [ ! -z "$servicePrincipalId" ]; then
+            export ARM_CLIENT_ID=$servicePrincipalId
+          fi
+        fi
+        
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
-        # Validate Terraform configuration using Azure CLI context
+        # Validate Terraform configuration
         echo "Validating Terraform configuration..."
         cd $(System.DefaultWorkingDirectory)
         terraform validate
@@ -132,13 +176,31 @@ steps:
     displayName: 'Terraform Plan'
     inputs:
       azureSubscription: ${{ parameters.serviceConnection }}
+      addSpnToEnvironment: true
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Set Databricks environment variable
+        # Setup authentication (same as init)
+        if [ ! -z "$servicePrincipalKey" ]; then
+          export ARM_CLIENT_ID=$servicePrincipalId
+          export ARM_CLIENT_SECRET=$servicePrincipalKey
+          export ARM_TENANT_ID=$tenantId
+          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          export ARM_USE_CLI=false
+          export ARM_USE_MSI=false
+        else
+          export ARM_USE_MSI=true
+          export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+          export ARM_USE_CLI=false
+          if [ ! -z "$servicePrincipalId" ]; then
+            export ARM_CLIENT_ID=$servicePrincipalId
+          fi
+        fi
+        
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
-        # Plan Terraform changes using Azure CLI context
+        # Plan Terraform changes
         echo "Planning Terraform changes..."
         cd $(System.DefaultWorkingDirectory)
         terraform plan \
