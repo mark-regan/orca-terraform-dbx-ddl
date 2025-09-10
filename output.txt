@@ -1,23 +1,7 @@
-/usr/bin/bash /home/vsts/work/_temp/azureclitaskscript1757520497857.sh
-SP ID - ***
-Environment: dev
-Catalog: dev_orca
-Metadata Schema: orca_metadata
-Runtime Schema: orca_runtime
-Backend Storage: stcbsdatalakedevuks
-Backend Container: support
-Backend RG: rg-mi-reporting-dev-uks
-Initializing Terraform with Azure backend...
-
-Initializing the backend...
-Initializing modules...
-- catalogs in modules/catalog
-- external_locations in modules/external-location
-- storage_credentials in modules/storage-credential
-- tables in modules/delta-table
 ╷
-│ Error: Failed to get existing workspaces: azure.BearerAuthorizer#WithAuthorization: Failed to refresh the Token for request to https://stcbsdatalakedevuks.blob.core.windows.net/support?comp=list&prefix=orca-ddl%2Fdev%2Fterraform.tfstateenv%3A&restype=container: StatusCode=400 -- Original Error: adal: Refresh request failed. Status Code = '400'. Response body: {"error":"invalid_request","error_description":"Identity not found"} Endpoint http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&client_id=***&resource=https%3A%2F%2Fstorage.azure.com%2F
+│ Error: Error building ARM Config: Authenticating using the Azure CLI is only supported as a User (not a Service Principal).
 │ 
+│ To authenticate to Azure using a Service Principal, you can use the separate 'Authenticate using a Service Principal'
+│ auth method - instructions for which can be found here: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_secret
 │ 
-╵
-
+│ Alternatively you can authenticate using the Azure CLI by using a User Account.
