@@ -19,11 +19,11 @@ terraform {
 
 provider "databricks" {
   # Provider configuration will use environment variables or Azure authentication
-  features = {}
 }
 
 provider "azurerm" {
-  features = {}
+  features {}
+  skip_provider_registration = true
 }
 
 # ================================================================================
