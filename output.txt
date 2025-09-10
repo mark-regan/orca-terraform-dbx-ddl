@@ -1,7 +1,1 @@
-╷
-│ Error: Error building ARM Config: Authenticating using the Azure CLI is only supported as a User (not a Service Principal).
-│ 
-│ To authenticate to Azure using a Service Principal, you can use the separate 'Authenticate using a Service Principal'
-│ auth method - instructions for which can be found here: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/guides/service_principal_client_secret
-│ 
-│ Alternatively you can authenticate using the Azure CLI by using a User Account.
+│ Error: Error building ARM Config: obtain subscription(e9fef286-9968-42f9-96b1-3bc8f380e074) from Azure CLI: parsing json result from the Azure CLI: waiting for the Azure CLI: exit status 1: ERROR: Please run 'az login' to setup account.
