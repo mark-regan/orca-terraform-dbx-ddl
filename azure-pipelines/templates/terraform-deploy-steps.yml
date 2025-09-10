@@ -44,10 +44,27 @@ steps:
       versionSpec: '3.11'
       addToPath: true
 
-  - task: TerraformInstaller@0
-    displayName: 'Install Terraform'
-    inputs:
-      terraformVersion: $(terraformVersion)
+
+  # Install Terraform manually since TerraformInstaller task is not available
+  - script: |
+      # Download and install Terraform
+      TERRAFORM_VERSION=${TERRAFORM_VERSION:-1.5.7}
+      echo "Installing Terraform version: $TERRAFORM_VERSION"
+      
+      # Download Terraform
+      wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+      
+      # Install unzip if not available
+      sudo apt-get update && sudo apt-get install -y unzip
+      
+      # Unzip and install
+      unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+      sudo mv terraform /usr/local/bin/
+      
+      # Verify installation
+      terraform version
+    env:
+      TERRAFORM_VERSION: $(terraformVersion)
 
   - task: AzureCLI@2
     displayName: 'Setup Databricks Authentication'
@@ -65,6 +82,7 @@ steps:
         echo "##vso[task.setvariable variable=DATABRICKS_HOST]${{ parameters.databricksHost }}"
         echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$ARM_CLIENT_ID"
         echo "##vso[task.setvariable variable=ARM_TENANT_ID]$ARM_TENANT_ID"
+        echo "##vso[task.setvariable variable=ARM_SUBSCRIPTION_ID]$ARM_SUBSCRIPTION_ID"
         echo "##vso[task.setvariable variable=ARM_USE_MSI]true"
         
         # Log configuration (without sensitive data)
@@ -73,25 +91,64 @@ steps:
         echo "Metadata Schema: ${{ parameters.orcaMetadataSchema }}"
         echo "Runtime Schema: ${{ parameters.orcaRuntimeSchema }}"
 
-  - script: |
-      # Initialize Terraform
-      terraform init \
-        -backend-config="resource_group_name=$(terraform_resource_group)" \
-        -backend-config="storage_account_name=$(terraform_storage_account)" \
-        -backend-config="container_name=$(terraform_container)" \
-        -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
-    displayName: 'Terraform Init'
-    workingDirectory: $(System.DefaultWorkingDirectory)
+        echo "Backend Storage: $(terraform_storage_account)"
+        echo "Backend Container: $(terraform_container)"
+        echo "Backend RG: $(terraform_resource_group)"
+        
+        # Export ARM credentials for Terraform backend
+        export ARM_USE_MSI=true
+        export ARM_SUBSCRIPTION_ID=$ARM_SUBSCRIPTION_ID
+        export ARM_TENANT_ID=$ARM_TENANT_ID
+        export ARM_CLIENT_ID=$ARM_CLIENT_ID
+        
+        # Initialize Terraform with Azure backend
+        echo "Initializing Terraform with Azure backend..."
+        terraform init \
+          -backend-config="resource_group_name=$(terraform_resource_group)" \
+          -backend-config="storage_account_name=$(terraform_storage_account)" \
+          -backend-config="container_name=$(terraform_container)" \
+          -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate" \
+          -backend-config="use_msi=true" \
+          -backend-config="subscription_id=$ARM_SUBSCRIPTION_ID" \
+          -backend-config="tenant_id=$ARM_TENANT_ID" \
+          -backend-config="client_id=$ARM_CLIENT_ID"
 
-  - script: |
-      # Validate Terraform configuration
-      terraform validate
+        workingDirectory: $(System.DefaultWorkingDirectory)
+
+  - task: AzureCLI@2
     displayName: 'Terraform Validate'
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        # Export ARM credentials for Terraform
+        export ARM_USE_MSI=true
+        export ARM_SUBSCRIPTION_ID=$(ARM_SUBSCRIPTION_ID)
+        export ARM_TENANT_ID=$(ARM_TENANT_ID)
+        export ARM_CLIENT_ID=$(ARM_CLIENT_ID)
+        export DATABRICKS_HOST=${{ parameters.databricksHost }}
+        
+        # Validate Terraform configuration
+        terraform validate
     workingDirectory: $(System.DefaultWorkingDirectory)
 
-  - script: |
-      # Plan Terraform changes
-      terraform plan \
+  - task: AzureCLI@2
+    displayName: 'Terraform Plan'
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        # Export ARM credentials for Terraform
+        export ARM_USE_MSI=true
+        export ARM_SUBSCRIPTION_ID=$(ARM_SUBSCRIPTION_ID)
+        export ARM_TENANT_ID=$(ARM_TENANT_ID)
+        export ARM_CLIENT_ID=$(ARM_CLIENT_ID)
+        export DATABRICKS_HOST=${{ parameters.databricksHost }}
+        
+        # Plan Terraform changes
+        terraform plan \
         -var="orca_catalog=${{ parameters.orcaCatalog }}" \
         -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
         -var="orca_runtime_schema=${{ parameters.orcaRuntimeSchema }}" \
@@ -106,15 +163,15 @@ steps:
         -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
         -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
         -out=tfplan
-    displayName: 'Terraform Plan'
     workingDirectory: $(System.DefaultWorkingDirectory)
 
-  - script: |
-      # Apply Terraform changes
-      terraform apply -auto-approve tfplan
-    displayName: 'Terraform Apply'
-    workingDirectory: $(System.DefaultWorkingDirectory)
-    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+
+#  - script: |
+#      # Apply Terraform changes
+#      terraform apply -auto-approve tfplan
+#    displayName: 'Terraform Apply'
+#    workingDirectory: $(System.DefaultWorkingDirectory)
+#    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
 
   - script: |
       # Show Terraform outputs

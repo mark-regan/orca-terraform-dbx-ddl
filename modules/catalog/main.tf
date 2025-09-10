@@ -9,6 +9,10 @@ resource "databricks_catalog" "this" {
   properties    = var.properties
   force_destroy = var.force_destroy
   owner         = var.owner
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = all
+  }
 }
 
 resource "databricks_grants" "this" {
@@ -35,6 +39,10 @@ resource "databricks_schema" "schemas" {
   comment      = each.value.comment
   properties   = each.value.properties
   owner        = each.value.owner
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = all
+  }
   
   force_destroy = each.value.force_destroy
 

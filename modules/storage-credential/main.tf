@@ -10,8 +10,8 @@ resource "databricks_storage_credential" "this" {
   owner         = var.owner
 
   lifecycle {
-    prevent_destroy = var.prevent_destroy
-    ignore_changes  = var.ignore_changes_list
+    prevent_destroy = true
+    ignore_changes  = all
   }
 }
 

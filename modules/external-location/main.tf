@@ -8,6 +8,10 @@ resource "databricks_external_location" "this" {
   read_only       = var.read_only
   force_destroy   = var.force_destroy
   owner           = var.owner
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = all
+  }
 }
 
 resource "databricks_grants" "this" {

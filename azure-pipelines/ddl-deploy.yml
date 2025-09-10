@@ -21,7 +21,7 @@ pool:
   vmImage: 'ubuntu-latest'
 
 variables:
-  - group: databricks-common
+  - group: dbx-common
   - name: terraformVersion
     value: '1.5.7'
   - name: databricksProviderVersion
@@ -76,12 +76,16 @@ stages:
               serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
               environment: test
               adGroupEnvironment: $(ad_environment_name)
-              catalogName: $(catalog_orca)
-              metadataSchemaName: $(schema_orca_metadata)
-              runtimeSchemaName: $(schema_orca_runtime)
+              orcaCatalog: $(catalog_orca)
+              orcaMetadataSchema: $(schema_orca_metadata)
+              orcaRuntimeSchema: $(schema_orca_runtime)
+              bronzeCatalog: $(catalog_bronze)
+              silverCatalog: $(catalog_silver)
+              goldCatalog: $(catalog_gold)
+              platinumCatalog: $(catalog_platinum)
               storageAccountName: $(storage_account)
               databricksHost: $(databricks_host)
-              enableCdfForRuntime: false
+              enableCdfForRuntime: true
               enableCdfForMetadata: false
 
   # UAT Deployment
@@ -108,12 +112,16 @@ stages:
                     serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
                     environment: uat
                     adGroupEnvironment: $(ad_environment_name)
-                    catalogName: $(catalog_orca)
-                    metadataSchemaName: $(schema_orca_metadata)
-                    runtimeSchemaName: $(schema_orca_runtime)
+                    orcaCatalog: $(catalog_orca)
+                    orcaMetadataSchema: $(schema_orca_metadata)
+                    orcaRuntimeSchema: $(schema_orca_runtime)
+                    bronzeCatalog: $(catalog_bronze)
+                    silverCatalog: $(catalog_silver)
+                    goldCatalog: $(catalog_gold)
+                    platinumCatalog: $(catalog_platinum)
                     storageAccountName: $(storage_account)
                     databricksHost: $(databricks_host)
-                    enableCdfForRuntime: false
+                    enableCdfForRuntime: true
                     enableCdfForMetadata: false
 
   # Production Deployment
@@ -139,10 +147,14 @@ stages:
                     serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
                     environment: prod
                     adGroupEnvironment: $(ad_environment_name)
-                    catalogName: $(catalog_orca)
-                    metadataSchemaName: $(schema_orca_metadata)
-                    runtimeSchemaName: $(schema_orca_runtime)
+                    orcaCatalog: $(catalog_orca)
+                    orcaMetadataSchema: $(schema_orca_metadata)
+                    orcaRuntimeSchema: $(schema_orca_runtime)
+                    bronzeCatalog: $(catalog_bronze)
+                    silverCatalog: $(catalog_silver)
+                    goldCatalog: $(catalog_gold)
+                    platinumCatalog: $(catalog_platinum)
                     storageAccountName: $(storage_account)
                     databricksHost: $(databricks_host)
-                    enableCdfForRuntime: false
+                    enableCdfForRuntime: true
                     enableCdfForMetadata: false

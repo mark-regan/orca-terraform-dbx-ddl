@@ -13,6 +13,10 @@ resource "databricks_sql_table" "this" {
   name         = var.table_name
   table_type   = "MANAGED"
   data_source_format = "DELTA"
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = all
+  }
   
   comment = var.table_comment
 

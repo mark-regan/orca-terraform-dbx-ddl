@@ -31,7 +31,7 @@ locals {
 
       schemas = {
         orca_metadata = {
-          name = "${var.orca_metadata_schema}
+          name = "${var.orca_metadata_schema}"
           comment = "ORCA Metadata Schema - Configuration and Definitions"
           grants = [
             {
@@ -54,7 +54,7 @@ locals {
         }
         
         orca_runtime = {
-          name = "${var.orca_runtime_schema}
+          name = "${var.orca_runtime_schema}"
           comment = "ORCA Runtime Schema - Execution Tracking and Monitoring"
           grants = [
             {
