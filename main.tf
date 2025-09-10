@@ -14,8 +14,14 @@ terraform {
 }
 
 provider "databricks" {
-  # Provider configuration will use environment variables or Azure authentication
-  # Uses DATABRICKS_HOST and Azure service principal authentication via ARM_* environment variables
+  # Provider configuration for Azure Databricks
+  # Will use Azure CLI authentication from the pipeline context
+  host = var.databricks_host
+  
+  # Use Azure CLI authentication (from the managed identity session)
+  azure_use_msi = false
+  
+  # Let Databricks provider detect Azure CLI context
 }
 
 # ================================================================================

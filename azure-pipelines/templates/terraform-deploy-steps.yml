@@ -73,7 +73,7 @@ steps:
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        echo "=== Using Managed Identity via Azure CLI Context ==="
+        echo "=== Setting up Terraform with Managed Identity Service Connection ==="
         
         # Get current Azure context details
         CURRENT_SUBSCRIPTION=$(az account show --query id -o tsv)
@@ -82,23 +82,31 @@ steps:
         echo "Current Subscription: $CURRENT_SUBSCRIPTION"
         echo "Current Tenant: $CURRENT_TENANT"
         
-        # Get the access token from the current Azure CLI session
-        # This token is from the managed identity authenticated session
-        ACCESS_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
+        # Since we can't use the managed identity directly with Terraform,
+        # we'll get a SAS token for the storage account
+        echo "=== Getting Storage Account SAS Token ==="
         
-        if [ -z "$ACCESS_TOKEN" ]; then
-          echo "ERROR: Failed to get access token"
+        # Get storage account key (if you have access) or use SAS token
+        END_DATE=$(date -u -d "1 hour" '+%Y-%m-%dT%H:%MZ')
+        
+        # Generate a SAS token for the container
+        SAS_TOKEN=$(az storage container generate-sas \
+          --account-name $(terraform_storage_account) \
+          --name $(terraform_container) \
+          --permissions dlrw \
+          --expiry $END_DATE \
+          --auth-mode login \
+          --as-user \
+          --output tsv)
+        
+        if [ -z "$SAS_TOKEN" ]; then
+          echo "ERROR: Failed to generate SAS token"
           exit 1
         fi
         
-        echo "Successfully obtained access token from managed identity session"
+        echo "Successfully generated SAS token for backend storage"
         
-        # Set environment variables for Terraform
-        # Use OIDC/token authentication instead of service principal
-        export ARM_USE_OIDC=true
-        export ARM_TENANT_ID=$CURRENT_TENANT
-        export ARM_SUBSCRIPTION_ID=$CURRENT_SUBSCRIPTION
-        export ARM_ACCESS_TOKEN=$ACCESS_TOKEN
+        # Set Databricks environment variable
         export DATABRICKS_HOST=${{ parameters.databricksHost }}
         
         # Log configuration
@@ -109,17 +117,16 @@ steps:
         echo "Backend RG: $(terraform_resource_group)"
         echo "Databricks Host: ${DATABRICKS_HOST}"
         
-        # Initialize Terraform with Azure backend
-        echo "=== Running Terraform Init ==="
+        # Initialize Terraform with Azure backend using SAS token
+        echo "=== Running Terraform Init with SAS Token ==="
         cd $(System.DefaultWorkingDirectory)
         
-        # Use Azure AD auth for the backend
         terraform init \
           -backend-config="resource_group_name=$(terraform_resource_group)" \
           -backend-config="storage_account_name=$(terraform_storage_account)" \
           -backend-config="container_name=$(terraform_container)" \
           -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate" \
-          -backend-config="use_azuread_auth=true"
+          -backend-config="sas_token=$SAS_TOKEN"
 
   - task: AzureCLI@2
     displayName: 'Terraform Validate'
@@ -128,17 +135,8 @@ steps:
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Get access token from managed identity session
-        ACCESS_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
-        
-        # Set environment variables for Terraform
-        export ARM_USE_OIDC=true
-        export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        export ARM_ACCESS_TOKEN=$ACCESS_TOKEN
-        export DATABRICKS_HOST=${{ parameters.databricksHost }}
-        
         # Validate Terraform configuration
+        # The Databricks provider will use Azure CLI authentication automatically
         echo "Validating Terraform configuration..."
         cd $(System.DefaultWorkingDirectory)
         terraform validate
@@ -150,17 +148,8 @@ steps:
       scriptType: 'bash'
       scriptLocation: 'inlineScript'
       inlineScript: |
-        # Get access token from managed identity session
-        ACCESS_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
-        
-        # Set environment variables for Terraform
-        export ARM_USE_OIDC=true
-        export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
-        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-        export ARM_ACCESS_TOKEN=$ACCESS_TOKEN
-        export DATABRICKS_HOST=${{ parameters.databricksHost }}
-        
         # Plan Terraform changes
+        # The Databricks provider will use Azure CLI authentication automatically
         echo "Planning Terraform changes..."
         cd $(System.DefaultWorkingDirectory)
         terraform plan \
@@ -177,6 +166,7 @@ steps:
           -var="storage_account_name=${{ parameters.storageAccountName }}" \
           -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
           -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
+          -var="databricks_host=${{ parameters.databricksHost }}" \
           -out=tfplan
 
 
