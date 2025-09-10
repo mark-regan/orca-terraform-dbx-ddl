@@ -6,9 +6,14 @@ trigger:
       - main
   paths:
     include:
-      - 'tables/orca_catalog/**'
+      - 'tables/**'
       - 'modules/**'
       - 'main.tf'
+      - 'catalogs.tf'
+      - 'external-locations.tf'
+      - 'storage-credentials.tf'
+      - 'tables.tf'
+      - 'outputs.tf'
       - 'variables.tf'
       - 'azure-pipelines/**'
 
@@ -28,8 +33,10 @@ stages:
     displayName: 'Deploy ORCA DDL to Development'
     condition: or(eq(variables['Build.SourceBranch'], 'refs/heads/develop'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'))
     variables:
-      - group: databricks-dev-vars
-      - group: orca-ddl-dev-vars  # This group should contain ORCA_CATALOG_NAME and ORCA_METADATA_SCHEMA_NAME, ORCA_RUNTIME_SCHEMA_NAME
+      - group: dbx-dev-vars
+      - group: dbx-unity-dev-vars  
+      - group: dbx-azure-dev-vars
+      - group: dbx-common
     jobs:
       - job: DeployTerraform
         displayName: 'Deploy ORCA Tables to Dev'
@@ -38,9 +45,12 @@ stages:
             parameters:
               serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
               environment: dev
-              catalogName: $(ORCA_CATALOG_NAME)
-              metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
-              runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
+              adGroupEnvironment: $(ad_environment_name)
+              catalogName: $(catalog_orca)
+              metadataSchemaName: $(schema_orca_metadata)
+              runtimeSchemaName: $(schema_orca_runtime)
+              storageAccountName: $(storage_account)
+              databricksHost: $(databricks_host)
               enableCdfForRuntime: true
               enableCdfForMetadata: false
 
@@ -49,20 +59,25 @@ stages:
     displayName: 'Deploy ORCA DDL to Test'
     condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
     variables:
-      - group: databricks-test-vars
-      - group: orca-ddl-test-vars
+      - group: dbx-test-vars
+      - group: dbx-unity-test-vars  
+      - group: dbx-azure-test-vars
+      - group: dbx-common
     jobs:
       - job: DeployTerraform
         displayName: 'Deploy ORCA Tables to Test'
         steps:
           - template: templates/terraform-deploy-steps.yml
             parameters:
-              serviceConnection: 'cbs-data-test-mi-reporting'
+              serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
               environment: test
-              catalogName: $(ORCA_CATALOG_NAME)
-              metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
-              runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
-              enableCdfForRuntime: true
+              adGroupEnvironment: $(ad_environment_name)
+              catalogName: $(catalog_orca)
+              metadataSchemaName: $(schema_orca_metadata)
+              runtimeSchemaName: $(schema_orca_runtime)
+              storageAccountName: $(storage_account)
+              databricksHost: $(databricks_host)
+              enableCdfForRuntime: false
               enableCdfForMetadata: false
 
   # UAT Deployment
@@ -71,8 +86,10 @@ stages:
     condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))
     dependsOn: DeployTest
     variables:
-      - group: databricks-uat-vars
-      - group: orca-ddl-uat-vars
+      - group: dbx-uat-vars
+      - group: dbx-unity-uat-vars  
+      - group: dbx-azure-uat-vars
+      - group: dbx-common
     jobs:
       - deployment: DeployTerraform
         displayName: 'Deploy ORCA Tables to UAT'
@@ -84,12 +101,15 @@ stages:
                 - checkout: self
                 - template: templates/terraform-deploy-steps.yml
                   parameters:
-                    serviceConnection: 'cbs-data-uat-mi-reporting'
+                    serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
                     environment: uat
-                    catalogName: $(ORCA_CATALOG_NAME)
-                    metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
-                    runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
-                    enableCdfForRuntime: true
+                    adGroupEnvironment: $(ad_environment_name)
+                    catalogName: $(catalog_orca)
+                    metadataSchemaName: $(schema_orca_metadata)
+                    runtimeSchemaName: $(schema_orca_runtime)
+                    storageAccountName: $(storage_account)
+                    databricksHost: $(databricks_host)
+                    enableCdfForRuntime: false
                     enableCdfForMetadata: false
 
   # Production Deployment
@@ -97,8 +117,10 @@ stages:
     displayName: 'Deploy ORCA DDL to Production'
     condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
     variables:
-      - group: databricks-prod-vars
-      - group: orca-ddl-prod-vars
+      - group: dbx-prod-vars
+      - group: dbx-unity-prod-vars  
+      - group: dbx-azure-prod-vars
+      - group: dbx-common
     jobs:
       - deployment: DeployTerraform
         displayName: 'Deploy ORCA Tables to Production'
@@ -110,10 +132,13 @@ stages:
                 - checkout: self
                 - template: templates/terraform-deploy-steps.yml
                   parameters:
-                    serviceConnection: 'cbs-data-prod-mi-reporting'
+                    serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
                     environment: prod
-                    catalogName: $(ORCA_CATALOG_NAME)
-                    metadataSchemaName: $(ORCA_METADATA_SCHEMA_NAME)
-                    runtimeSchemaName: $(ORCA_RUNTIME_SCHEMA_NAME)
-                    enableCdfForRuntime: true
+                    adGroupEnvironment: $(ad_environment_name)
+                    catalogName: $(catalog_orca)
+                    metadataSchemaName: $(schema_orca_metadata)
+                    runtimeSchemaName: $(schema_orca_runtime)
+                    storageAccountName: $(storage_account)
+                    databricksHost: $(databricks_host)
+                    enableCdfForRuntime: false
                     enableCdfForMetadata: false

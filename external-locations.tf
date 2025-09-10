@@ -5,83 +5,143 @@
 locals {
   external_locations = {
     # Bronze layer locations
-    bronze_raw = {
-      name            = "${var.environment}_bronze_raw"
+    bronze = {
+      name            = "${var.environment}_bronze_raw_tf"
       comment         = "Raw data landing zone"
-      url             = "abfss://bronze@${var.storage_account_name}.dfs.core.windows.net/raw"
-      credential_name = module.storage_credentials["bronze_storage"].name
+      url             = "abfss://bronze@${var.storage_account_name}.dfs.core.windows.net"
+      credential_name = module.storage_credentials["tf_storage"].name
       grants = [
         {
-          principal  = "data_engineers"
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
           privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
         },
         {
-          principal  = "data_scientists"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
           privileges = ["READ_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
         }
       ]
     }
 
-    bronze_archive = {
-      name            = "${var.environment}_bronze_archive"
-      comment         = "Archived raw data"
-      url             = "abfss://bronze@${var.storage_account_name}.dfs.core.windows.net/archive"
-      credential_name = module.storage_credentials["bronze_storage"].name
-      read_only       = true
+    # platinum layer locations
+    platinum = {
+      name            = "${var.environment}_platinum_cleansed_tf"
+      comment         = "Aggregated reporting semantic view layer"
+      url             = "abfss://platinum@${var.storage_account_name}.dfs.core.windows.net"
+      credential_name = module.storage_credentials["tf_storage"].name
       grants = [
         {
-          principal  = "data_engineers"
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_platinum_Readonly_${var.ad_group_environment}"
           privileges = ["READ_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_platinum_Readwrite_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
         }
       ]
     }
 
-    # Silver layer locations
-    silver_cleansed = {
-      name            = "${var.environment}_silver_cleansed"
-      comment         = "Cleansed and validated data"
-      url             = "abfss://silver@${var.storage_account_name}.dfs.core.windows.net/cleansed"
-      credential_name = module.storage_credentials["silver_storage"].name
+    # Platinum layer locations
+    platinum = {
+      name            = "${var.environment}_platinum_cleansed_tf"
+      comment         = "Aggregated reporting semantic view layer"
+      url             = "abfss://platinum@${var.storage_account_name}.dfs.core.windows.net"
+      credential_name = module.storage_credentials["tf_storage"].name
       grants = [
         {
-          principal  = "data_engineers"
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
           privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
         },
         {
-          principal  = "data_analysts"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_platinum_Readonly_${var.ad_group_environment}"
           privileges = ["READ_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_platinum_Readwrite_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
         }
       ]
     }
 
-    # Gold layer locations
-    gold_analytics = {
-      name            = "${var.environment}_gold_analytics"
-      comment         = "Business-ready analytical datasets"
-      url             = "abfss://gold@${var.storage_account_name}.dfs.core.windows.net/analytics"
-      credential_name = module.storage_credentials["gold_storage"].name
+    # Platinum layer locations
+    platinum = {
+      name            = "${var.environment}_platinum_cleansed_tf"
+      comment         = "Highly aggregated and secured data"
+      url             = "abfss://platinum@${var.storage_account_name}.dfs.core.windows.net"
+      credential_name = module.storage_credentials["tf_storage"].name
       grants = [
         {
-          principal  = "data_engineers"
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
           privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
         },
         {
-          principal  = "business_users"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Platinum_Readonly_${var.ad_group_environment}"
           privileges = ["READ_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Platinum_Readwrite_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
         }
       ]
     }
 
     # ORCA specific location
-    orca_data = {
-      name            = "${var.environment}_orca_data"
+    orca = {
+      name            = "${var.environment}_orca_data_tf"
       comment         = "ORCA platform data location"
-      url             = "abfss://orca@${var.storage_account_name}.dfs.core.windows.net/data"
-      credential_name = module.storage_credentials["bronze_storage"].name
+      url             = "abfss://orchestration@${var.storage_account_name}.dfs.core.windows.net"
+      credential_name = module.storage_credentials["tf_storage"].name
       grants = [
         {
-          principal  = "orca_service"
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
           privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["CREATE_EXTERNAL_TABLE", "READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
         }
       ]
     }

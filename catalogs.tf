@@ -6,46 +6,72 @@ locals {
   catalogs = {
     # ORCA Catalog - Main catalog for ORCA platform
     orca = {
-      name         = "${var.environment}_orca_catalog"
+      name         = "${var.catalog_orca}"
       comment      = "ORCA Platform Data Catalog"
-      storage_root = "abfss://orca@${var.storage_account_name}.dfs.core.windows.net/managed"
+      storage_root = "abfss://orchestration@${var.storage_account_name}.dfs.core.windows.net/managed"
       
       grants = [
         {
-          principal  = "orca_service"
-          privileges = ["USE_CATALOG", "CREATE_SCHEMA"]
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
         },
         {
-          principal  = "data_engineers"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
           privileges = ["USE_CATALOG"]
         }
       ]
 
       schemas = {
         orca_metadata = {
+          name = "${var.schema_orca_metadata}
           comment = "ORCA Metadata Schema - Configuration and Definitions"
           grants = [
             {
-              principal  = "orca_service"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "CREATE_FUNCTION"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
         
         orca_runtime = {
+          name = "${var.schema_orca_runtime}
           comment = "ORCA Runtime Schema - Execution Tracking and Monitoring"
           grants = [
             {
-              principal  = "orca_service"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "CREATE_FUNCTION", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
@@ -54,24 +80,64 @@ locals {
 
     # Bronze Catalog - Raw data layer
     bronze = {
-      name         = "${var.environment}_bronze_catalog"
+      name         = "${var.catalog_bronze}"
       comment      = "Bronze Layer - Raw Data"
       storage_root = "abfss://bronze@${var.storage_account_name}.dfs.core.windows.net/managed"
       
       grants = [
         {
-          principal  = "data_engineers"
-          privileges = ["USE_CATALOG", "CREATE_SCHEMA"]
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
         },
         {
-          principal  = "data_scientists"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
           privileges = ["USE_CATALOG"]
         }
       ]
 
       schemas = {
-        raw_ingestion = {
-          comment = "Raw data ingestion schema"
+        bancs = {
+          name = "bancs"
+          comment = "BANCS Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        bancs_staging = {
+          name = "bancs_staging"
+          comment = "BANCS Data - Validated raw data"
           grants = [
             {
               principal  = "data_engineers"
@@ -79,16 +145,8 @@ locals {
             }
           ]
         }
-        
-        staging = {
-          comment = "Staging area for raw data"
-          grants = [
-            {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
-            }
-          ]
-        }
+
+
       }
     }
 

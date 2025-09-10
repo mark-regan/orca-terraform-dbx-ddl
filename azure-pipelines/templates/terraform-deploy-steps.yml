@@ -3,11 +3,13 @@ parameters:
     type: string
   - name: environment
     type: string
-  - name: catalogName
+  - name: adGroupEnvironment
     type: string
-  - name: metadataSchemaName
+  - name: orcaCatalog
     type: string
-  - name: runtimeSchemaName
+  - name: orcaMetadataSchema
+    type: string
+  - name: orcaRuntimeSchema
     type: string
   - name: enableCdfForRuntime
     type: boolean
@@ -18,15 +20,14 @@ parameters:
   - name: storageAccountName
     type: string
     default: ''
-  - name: bronzeAccessConnectorId
+  - name: storageConnectorId
     type: string
     default: ''
-  - name: silverAccessConnectorId
+  - name: databricksHost
     type: string
     default: ''
-  - name: goldAccessConnectorId
-    type: string
-    default: ''
+  
+
 
 steps:
   - task: UsePythonVersion@0
@@ -53,23 +54,23 @@ steps:
         export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
         
         # Set Databricks environment variables
-        echo "##vso[task.setvariable variable=DATABRICKS_HOST]$(DATABRICKS_WORKSPACE_URL)"
+        echo "##vso[task.setvariable variable=DATABRICKS_HOST]${{ parameters.databricksHost }}"
         echo "##vso[task.setvariable variable=ARM_CLIENT_ID]$ARM_CLIENT_ID"
         echo "##vso[task.setvariable variable=ARM_TENANT_ID]$ARM_TENANT_ID"
         echo "##vso[task.setvariable variable=ARM_USE_MSI]true"
         
         # Log configuration (without sensitive data)
         echo "Environment: ${{ parameters.environment }}"
-        echo "Catalog: ${{ parameters.catalogName }}"
-        echo "Metadata Schema: ${{ parameters.metadataSchemaName }}"
-        echo "Runtime Schema: ${{ parameters.runtimeSchemaName }}"
+        echo "Catalog: ${{ parameters.orcaCatalog }}"
+        echo "Metadata Schema: ${{ parameters.orcaMetadataSchema }}"
+        echo "Runtime Schema: ${{ parameters.orcaRuntimeSchema }}"
 
   - script: |
       # Initialize Terraform
       terraform init \
-        -backend-config="resource_group_name=$(TF_STATE_RESOURCE_GROUP)" \
-        -backend-config="storage_account_name=$(TF_STATE_STORAGE_ACCOUNT)" \
-        -backend-config="container_name=$(TF_STATE_CONTAINER)" \
+        -backend-config="resource_group_name=$(terraform_resource_group)" \
+        -backend-config="storage_account_name=$(terraform_storage_account)" \
+        -backend-config="container_name=$(terraform_container)" \
         -backend-config="key=orca-ddl/${{ parameters.environment }}/terraform.tfstate"
     displayName: 'Terraform Init'
     workingDirectory: $(System.DefaultWorkingDirectory)
@@ -83,16 +84,15 @@ steps:
   - script: |
       # Plan Terraform changes
       terraform plan \
-        -var="catalog_name=${{ parameters.catalogName }}" \
-        -var="metadata_schema_name=${{ parameters.metadataSchemaName }}" \
-        -var="runtime_schema_name=${{ parameters.runtimeSchemaName }}" \
+        -var="orca_catalog=${{ parameters.orcaCatalog }}" \
+        -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
+        -var="orca_runtime_schema=${{ parameters.orcaRuntimeSchema }}" \
         -var="environment=${{ parameters.environment }}" \
         -var="enable_cdf_for_runtime=${{ parameters.enableCdfForRuntime }}" \
         -var="enable_cdf_for_metadata=${{ parameters.enableCdfForMetadata }}" \
-        -var="storage_account_name=$(STORAGE_ACCOUNT_NAME)" \
-        -var="bronze_access_connector_id=$(BRONZE_ACCESS_CONNECTOR_ID)" \
-        -var="silver_access_connector_id=$(SILVER_ACCESS_CONNECTOR_ID)" \
-        -var="gold_access_connector_id=$(GOLD_ACCESS_CONNECTOR_ID)" \
+        -var="storage_account_name=$(parameters.storageAccountName)" \
+        -var="storage_connector_id=${{ parameters.storageConnectorId }}" \
+        -var="ad_group_environment=${{ parameters.adGroupEnvironment }}" \
         -out=tfplan
     displayName: 'Terraform Plan'
     workingDirectory: $(System.DefaultWorkingDirectory)

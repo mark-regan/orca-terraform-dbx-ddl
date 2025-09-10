@@ -4,44 +4,28 @@
 
 locals {
   storage_credentials = {
-    # Bronze layer storage credential
-    bronze_storage = {
-      name                = "${var.environment}_bronze_storage_credential"
-      comment             = "Storage credential for Bronze layer data"
-      access_connector_id = var.bronze_access_connector_id
+    # Terraform storage credential
+    tf_storage = {
+      name                = "${var.environment}_storage_credential_tf"
+      comment             = "Storage credential for Bronze layer data - created by Terraform"
+      access_connector_id = var.storage_connector_id
       prevent_destroy     = true  # Prevent accidental deletion
       grants = [
         {
-          principal  = "data_engineers"
-          privileges = ["CREATE_EXTERNAL_LOCATION"]
-        }
-      ]
-    }
-
-    # Silver layer storage credential  
-    silver_storage = {
-      name                = "${var.environment}_silver_storage_credential"
-      comment             = "Storage credential for Silver layer data"
-      access_connector_id = var.silver_access_connector_id
-      prevent_destroy     = true
-      grants = [
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["READ_FILES"]
+        },
         {
-          principal  = "data_engineers"
-          privileges = ["CREATE_EXTERNAL_LOCATION"]
-        }
-      ]
-    }
-
-    # Gold layer storage credential
-    gold_storage = {
-      name                = "${var.environment}_gold_storage_credential"
-      comment             = "Storage credential for Gold layer data"
-      access_connector_id = var.gold_access_connector_id
-      prevent_destroy     = true
-      grants = [
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["READ_FILES","WRITE_FILES"]
+        },
         {
-          principal  = "data_engineers"
-          privileges = ["CREATE_EXTERNAL_LOCATION"]
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["READ_FILES", "WRITE_FILES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
         }
       ]
     }
@@ -57,7 +41,7 @@ module "storage_credentials" {
 
   name                = each.value.name
   comment             = each.value.comment
-  access_connector_id = each.value.access_connector_id
+  access_connector_id = each.value.storage_connector_id
   grants              = lookup(each.value, "grants", [])
   owner               = lookup(each.value, "owner", null)
   force_destroy       = lookup(each.value, "force_destroy", false)
