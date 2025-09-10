@@ -46,9 +46,13 @@ stages:
               serviceConnection: 'cbs-data-preprod-mi-reporting-dev'
               environment: dev
               adGroupEnvironment: $(ad_environment_name)
-              catalogName: $(catalog_orca)
-              metadataSchemaName: $(schema_orca_metadata)
-              runtimeSchemaName: $(schema_orca_runtime)
+              orcaCatalog: $(catalog_orca)
+              orcaMetadataSchema: $(schema_orca_metadata)
+              orcaRuntimeSchema: $(schema_orca_runtime)
+              bronzeCatalog: $(catalog_bronze)
+              silverCatalog: $(catalog_silver)
+              goldCatalog: $(catalog_gold)
+              platinumCatalog: $(catalog_platinum)
               storageAccountName: $(storage_account)
               databricksHost: $(databricks_host)
               enableCdfForRuntime: true

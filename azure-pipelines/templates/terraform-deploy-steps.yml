@@ -11,6 +11,14 @@ parameters:
     type: string
   - name: orcaRuntimeSchema
     type: string
+  - name: bronzeCatalog
+    type: string
+  - name: silverCatalog
+    type: string
+  - name: goldCatalog
+    type: string
+  - name: platinumCatalog
+    type: string
   - name: enableCdfForRuntime
     type: boolean
     default: true
@@ -87,6 +95,10 @@ steps:
         -var="orca_catalog=${{ parameters.orcaCatalog }}" \
         -var="orca_metadata_schema=${{ parameters.orcaMetadataSchema }}" \
         -var="orca_runtime_schema=${{ parameters.orcaRuntimeSchema }}" \
+        -var="bronze_catalog=${{ parameters.bronzeCatalog }}" \
+        -var="silver_catalog=${{ parameters.silverCatalog }}" \
+        -var="gold_catalog=${{ parameters.goldCatalog }}" \
+        -var="platinum_catalog=${{ parameters.platinumCatalog }}" \
         -var="environment=${{ parameters.environment }}" \
         -var="enable_cdf_for_runtime=${{ parameters.enableCdfForRuntime }}" \
         -var="enable_cdf_for_metadata=${{ parameters.enableCdfForMetadata }}" \

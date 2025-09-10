@@ -6,7 +6,7 @@ locals {
   catalogs = {
     # ORCA Catalog - Main catalog for ORCA platform
     orca = {
-      name         = "${var.catalog_orca}"
+      name         = "${var.orca_catalog}"
       comment      = "ORCA Platform Data Catalog"
       storage_root = "abfss://orchestration@${var.storage_account_name}.dfs.core.windows.net/managed"
       
@@ -31,7 +31,7 @@ locals {
 
       schemas = {
         orca_metadata = {
-          name = "${var.schema_orca_metadata}
+          name = "${var.orca_metadata_schema}
           comment = "ORCA Metadata Schema - Configuration and Definitions"
           grants = [
             {
@@ -54,7 +54,7 @@ locals {
         }
         
         orca_runtime = {
-          name = "${var.schema_orca_runtime}
+          name = "${var.orca_runtime_schema}
           comment = "ORCA Runtime Schema - Execution Tracking and Monitoring"
           grants = [
             {
@@ -80,7 +80,7 @@ locals {
 
     # Bronze Catalog - Raw data layer
     bronze = {
-      name         = "${var.catalog_bronze}"
+      name         = "${var.bronze_catalog}"
       comment      = "Bronze Layer - Raw Data"
       storage_root = "abfss://bronze@${var.storage_account_name}.dfs.core.windows.net/managed"
       
@@ -125,6 +125,14 @@ locals {
               privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
             },
             {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
               principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
               privileges = ["ALL_PRIVILEGES"]
             },
@@ -137,61 +145,623 @@ locals {
 
         bancs_staging = {
           name = "bancs_staging"
-          comment = "BANCS Data - Validated raw data"
+          comment = "BANCS Data - Initial Raw Data"
           grants = [
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
 
+        digihome = {
+          name = "digihome"
+          comment = "Digihome Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
 
+        digihome_staging = {
+          name = "digihome_staging"
+          comment = "Digihome Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        creatio = {
+          name = "creatio"
+          comment = "Creatio Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        creatio_staging = {
+          name = "creatio_staging"
+          comment = "Creatio Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        cexperian = {
+          name = "experian"
+          comment = "Experian Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        experian_staging = {
+          name = "experian_staging"
+          comment = "Experian Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        enfuce = {
+          name = "enfuce"
+          comment = "Enfuce Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        enfuce_staging = {
+          name = "enfuce_staging"
+          comment = "Enfuce Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        moneyfacts = {
+          name = "moneyfacts"
+          comment = "Moneyfacts Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        moneyfacts_staging = {
+          name = "moneyfacts_staging"
+          comment = "Moneyfacts Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        caci = {
+          name = "caci"
+          comment = "CACI Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        caci_staging = {
+          name = "caci_staging"
+          comment = "CACI Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        external= {
+          name = "external"
+          comment = "External Auxilliary Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        external_staging = {
+          name = "external_staging"
+          comment = "External Auxilliary Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        internal= {
+          name = "internal"
+          comment = "Internal Auxilliary Data - Validated raw data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+
+        internal_staging = {
+          name = "internal_staging"
+          comment = "Internal Auxilliary Data - Initial Raw Data"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Bronze_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
       }
     }
 
     # Silver Catalog - Cleansed data layer
     silver = {
-      name         = "${var.environment}_silver_catalog"
+      name         = "${var.silver_catalog}"
       comment      = "Silver Layer - Cleansed and Validated Data"
       storage_root = "abfss://silver@${var.storage_account_name}.dfs.core.windows.net/managed"
       
       grants = [
         {
-          principal  = "data_engineers"
-          privileges = ["USE_CATALOG", "CREATE_SCHEMA"]
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
         },
         {
-          principal  = "data_analysts"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Silver_Readonly_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Silver_Readwrite_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
           privileges = ["USE_CATALOG"]
         }
       ]
 
       schemas = {
-        cleansed = {
-          comment = "Cleansed and standardized data"
+        dwh = {
+          comment = "Datawarehouse model layer used for reporting and analysis"
           grants = [
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "data_analysts"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Silver_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Silver_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
         
-        enriched = {
-          comment = "Enriched data with business logic"
+        lakehouse = {
+          comment = "Datalakehouse presenting non-modelled data for reporting consumption"
           grants = [
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "data_analysts"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Silver_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Silver_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
@@ -200,17 +770,33 @@ locals {
 
     # Gold Catalog - Business-ready data layer
     gold = {
-      name         = "${var.environment}_gold_catalog"
+      name         = "${var.gold_catalog}"
       comment      = "Gold Layer - Business-Ready Analytics"
       storage_root = "abfss://gold@${var.storage_account_name}.dfs.core.windows.net/managed"
       
       grants = [
         {
-          principal  = "data_engineers"
-          privileges = ["USE_CATALOG", "CREATE_SCHEMA"]
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
         },
         {
-          principal  = "business_users"
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Gold_Readonly_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Gold_Readwrite_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
           privileges = ["USE_CATALOG"]
         }
       ]
@@ -220,12 +806,28 @@ locals {
           comment = "Analytical datasets and aggregations"
           grants = [
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "business_users"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Gold_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Gold_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
@@ -234,26 +836,124 @@ locals {
           comment = "Reporting marts and views"
           grants = [
             {
-              principal  = "data_engineers"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "CREATE_VIEW", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "business_users"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Gold_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Gold_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            }
+          ]
+        }
+      }
+    }
+
+    # Platinum Catalog - Business-ready data layer
+    platinum = {
+      name         = "${var.platinum_catalog}"
+      comment      = "Platinum Layer - Secure aggregates and metrics"
+      storage_root = "abfss://platinum@${var.storage_account_name}.dfs.core.windows.net/managed"
+      
+      grants = [
+        {
+          principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Platinum_Readonly_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Databricks_Platinum_Readwrite_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        },
+        {
+          principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+          privileges = ["ALL_PRIVILEGES"]
+        },
+        {
+          principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+          privileges = ["USE_CATALOG"]
+        }
+      ]
+
+      schemas = {
+        analytics = {
+          comment = "Analytical datasets and aggregations"
+          grants = [
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_PlatinumReadonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Platinum_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
         
-        ml_features = {
-          comment = "Machine learning feature store"
+        reporting = {
+          comment = "Reporting marts and views"
           grants = [
             {
-              principal  = "data_scientists"
-              privileges = ["USE_SCHEMA", "CREATE_TABLE", "MODIFY"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Support_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             },
             {
-              principal  = "ml_engineers"
-              privileges = ["USE_SCHEMA", "SELECT"]
+              principal  = "Azure_MIReporting_Databricks_Orca_Exec_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Platinum_Readonly_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY"]
+            },
+            {
+              principal  = "Azure_MIReporting_Databricks_Platinum_Readwrite_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT","MODIFY","WRITE_VOLUME","REFRESH","CREATE_TABLE","CREATE_MATERIALIZED_VIEW"]
+            },
+            {
+              principal  = "Azure_MIReporting_Admin_${var.ad_group_environment}"
+              privileges = ["ALL_PRIVILEGES"]
+            },
+            {
+              principal  = "Azure_MIReporting_Developer_${var.ad_group_environment}"
+              privileges = ["USE_SCHEMA","EXECUTE","READ_VOLUME","SELECT"]
             }
           ]
         }
