@@ -219,6 +219,19 @@ def load_deploy_config(env_dir: Path, common_dir: Path) -> tuple[list[str], bool
     return tags, include_common
 
 
+def has_continue_on_fail(path: Path) -> bool:
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            for i, line in enumerate(f):
+                if i >= 20:
+                    break
+                if re.match(r"\s*--\s*continue_on_fail\b", line, flags=re.IGNORECASE):
+                    return True
+    except Exception:
+        pass
+    return False
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Run Databricks SQL deployment")
     ap.add_argument("--env", required=True, choices=["dev", "test", "uat", "prod"], help="Environment name")
@@ -293,16 +306,19 @@ def main() -> int:
     results_path = out_dir / "result.jsonl"
     ran = 0
     failures = 0
+    abort_deploy = False
     for f in files:
         if not matches_tags(f):
             logging.debug("Skipping (no matching tag): %s", f)
             continue
-        ran += 1
         logging.info("Executing: %s", f)
         sql_text = f.read_text(encoding="utf-8")
         rendered = render_sql(sql_text)
         statements = split_sql_statements(rendered)
         logging.info("Split into %d statement(s)", len(statements))
+        cof = has_continue_on_fail(f)
+        if cof:
+            logging.info("continue_on_fail detected for file: %s", f)
         for idx, stmt in enumerate(statements, start=1):
             stmt_preview = (stmt[:200] + "...") if len(stmt) > 200 else stmt
             payload = {
@@ -335,8 +351,12 @@ def main() -> int:
                 error_detail = str(e)
 
             end_ts = int(time.time())
+            ran += 1
             if status in ("FAILED", "CANCELED", "SUBMIT_FAILED"):
                 failures += 1
+                if not cof:
+                    logging.error("Aborting deployment due to failure in %s (no continue_on_fail)", f)
+                    abort_deploy = True
             ran += 0  # already incremented per filtered statement
             rec = {
                 "file": str(f),
@@ -356,11 +376,79 @@ def main() -> int:
                     rec["error"] = str(error_detail)
             with results_path.open("a", encoding="utf-8") as rf:
                 rf.write(json.dumps(rec) + "\n")
+            if abort_deploy:
+                break
+        if abort_deploy:
+            break
 
     (out_dir / "summary.json").write_text(json.dumps({"ran": ran, "failures": failures}), encoding="utf-8")
     metadata["end_epoch_s"] = int(time.time())
     (out_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     logging.info("Completed: ran=%d failures=%d", ran, failures)
+    # If any failures, attempt rollback scripts tagged with rollback-{tag}
+    if failures > 0 and tags_filter:
+        logging.warning("Failures detected. Beginning rollback for tags=%s", tags_filter)
+        rollback_tags = {f"rollback-{t.lower()}" for t in tags_filter}
+        searched: list[Path] = []
+        if common_dir.exists():
+            searched += sorted(common_dir.rglob("*.sql"))
+        if env_dir.exists():
+            searched += sorted(env_dir.rglob("*.sql"))
+        rollback_files: list[Path] = []
+        for fp in searched:
+            f_tags = set(extract_file_tags(fp))
+            if any(tag in f_tags for tag in rollback_tags):
+                rollback_files.append(fp)
+        logging.info("Found %d rollback script(s)", len(rollback_files))
+        for rf in rollback_files:
+            logging.info("Rollback executing: %s", rf)
+            try:
+                r_sql = render_sql(rf.read_text(encoding="utf-8"))
+                r_statements = split_sql_statements(r_sql)
+                for ridx, rstmt in enumerate(r_statements, start=1):
+                    payload = {"warehouse_id": warehouse_id, "statement": rstmt}
+                    if args.wait_timeout:
+                        payload["wait_timeout"] = args.wait_timeout
+                    start_ts = int(time.time())
+                    r_status = "SUBMIT_FAILED"
+                    r_error = None
+                    r_stmt_id = ""
+                    try:
+                        s = http_json("POST", f"{host}/api/2.0/sql/statements", token, payload)
+                        r_stmt_id = s.get("statement_id", "")
+                        if not r_stmt_id:
+                            raise RuntimeError(f"Submit response missing statement_id: {s}")
+                        while True:
+                            time.sleep(2)
+                            st = http_json("GET", f"{host}/api/2.0/sql/statements/{r_stmt_id}", token)
+                            r_status = st.get("status", {}).get("state", "")
+                            if r_status in ("SUCCEEDED", "FAILED", "CANCELED"):
+                                if r_status != "SUCCEEDED":
+                                    r_error = st
+                                break
+                        logging.info("Rollback statement result: %s (id=%s)", r_status, r_stmt_id)
+                    except Exception as ex:
+                        logging.exception("Error in rollback statement %d of %s", ridx, rf)
+                        r_error = str(ex)
+                    end_ts = int(time.time())
+                    rec = {
+                        "file": str(rf),
+                        "rollback": True,
+                        "statement_index": ridx,
+                        "status": r_status,
+                        "statement_id": r_stmt_id or None,
+                        "start_epoch_s": start_ts,
+                        "end_epoch_s": end_ts,
+                        "duration_s": end_ts - start_ts,
+                        "tags": extract_file_tags(rf),
+                    }
+                    if r_error is not None:
+                        rec["error"] = r_error if isinstance(r_error, str) else r_error
+                    with results_path.open("a", encoding="utf-8") as frec:
+                        frec.write(json.dumps(rec) + "\n")
+            except Exception:
+                logging.exception("Failed reading or running rollback file: %s", rf)
+
     return 0 if failures == 0 else 1
 
 
