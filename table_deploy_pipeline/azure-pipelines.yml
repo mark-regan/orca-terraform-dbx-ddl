@@ -69,8 +69,7 @@ stages:
                         --host "$DATABRICKS_HOST" \
                         --root table_deploy_pipeline/sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/dev" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)" \
-                        --warehouse-name "$(databricks_sql_warehouse_name)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)"
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (Dev)'
@@ -151,8 +150,7 @@ stages:
                         --host "$DATABRICKS_HOST" \
                         --root table_deploy_pipeline/sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/test" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)" \
-                        --warehouse-name "$(databricks_sql_warehouse_name)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)"
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (Test)'
@@ -233,8 +231,7 @@ stages:
                         --host "$DATABRICKS_HOST" \
                         --root table_deploy_pipeline/sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/uat" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)" \
-                        --warehouse-name "$(databricks_sql_warehouse_name)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)"
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (UAT)'
@@ -315,8 +312,7 @@ stages:
                         --host "$DATABRICKS_HOST" \
                         --root table_deploy_pipeline/sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/prod" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)" \
-                        --warehouse-name "$(databricks_sql_warehouse_name)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)"
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (Prod)'
