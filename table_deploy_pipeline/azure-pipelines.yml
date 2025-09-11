@@ -36,9 +36,13 @@ stages:
       - group: dbx-azure-dev-vars
       - group: dbx-common
     jobs:
-      - job: RunSQLDev
+      - deployment: RunSQLDev
         displayName: 'Execute SQL (Dev)'
-        steps:
+        environment: dev
+        strategy:
+          runOnce:
+            deploy:
+              steps:
           - checkout: self
 
           - task: AzureCLI@2
@@ -266,13 +270,51 @@ stages:
                 echo "Wrote results to $RESULTS_DIR"
                 [ "$failures" -eq 0 ]
 
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish SQL Results (Dev)'
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/dev'
-              ArtifactName: 'sql-results-dev'
-              publishLocation: 'Container'
-            condition: always()
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish SQL Results (Dev)'
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/dev'
+      ArtifactName: 'sql-results-dev'
+      publishLocation: 'Container'
+    condition: always()
+
+  - task: Bash@3
+    displayName: 'Assemble deployment.json (Dev)'
+    inputs:
+      targetType: inline
+      script: |
+        set -euo pipefail
+        IN_DIR='$(Build.ArtifactStagingDirectory)/sql-results/dev'
+        OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/dev'
+        mkdir -p "$OUT_DIR"
+        RESULTS='[]'
+        SUMMARY='{ "ran": 0, "failures": 0 }'
+        META='{}'
+        if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+        if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+        if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+        jq -n \
+          --arg env "dev" \
+          --arg buildId "$(Build.BuildId)" \
+          --arg buildNumber "$(Build.BuildNumber)" \
+          --arg defName "$(Build.DefinitionName)" \
+          --arg branch "$(Build.SourceBranch)" \
+          --arg sha "$(Build.SourceVersion)" \
+          --arg sqlPath "${{ parameters.sqlPath }}" \
+          --arg tags "${{ parameters.tags }}" \
+          --argjson results "$RESULTS" \
+          --argjson summary "$SUMMARY" \
+          --argjson meta "$META" \
+          '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null), include_common: ($meta.include_common // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
+        echo "Wrote $OUT_DIR/deployment.json"
+
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Deployment Report (Dev)'
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/dev'
+      ArtifactName: 'deployment-report-dev'
+      publishLocation: 'Container'
+    condition: always()
 
   - stage: DeployTest
     displayName: 'Run SQL to Test'
@@ -283,9 +325,13 @@ stages:
       - group: dbx-azure-test-vars
       - group: dbx-common
     jobs:
-      - job: RunSQLTest
+      - deployment: RunSQLTest
         displayName: 'Execute SQL (Test)'
-        steps:
+        environment: test
+        strategy:
+          runOnce:
+            deploy:
+              steps:
           - checkout: self
 
           - task: AzureCLI@2
@@ -361,13 +407,50 @@ stages:
                 for f in "${files[@]}"; do if match_tags "$f"; then if ! run_sql_file "$f"; then failures=$((failures+1)); fi; ran=$((ran+1)); else echo "Skipping (no matching tag): $f"; fi; done
                 jq -n --arg ran "$ran" --arg failures "$failures" '{ran: ($ran|tonumber), failures: ($failures|tonumber)}' > "$SUMMARY_JSON"; END_TS=$(date +%s); tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson end "$END_TS" '. + {end_epoch_s: $end}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"; echo "Wrote results to $RESULTS_DIR"; [ "$failures" -eq 0 ]
 
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish SQL Results (Test)'
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/test'
-              ArtifactName: 'sql-results-test'
-              publishLocation: 'Container'
-            condition: always()
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish SQL Results (Test)'
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/test'
+      ArtifactName: 'sql-results-test'
+      publishLocation: 'Container'
+    condition: always()
+
+  - task: Bash@3
+    displayName: 'Assemble deployment.json (Test)'
+    inputs:
+      targetType: inline
+      script: |
+        set -euo pipefail
+        IN_DIR='$(Build.ArtifactStagingDirectory)/sql-results/test'
+        OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/test'
+        mkdir -p "$OUT_DIR"
+        RESULTS='[]'
+        SUMMARY='{ "ran": 0, "failures": 0 }'
+        META='{}'
+        if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+        if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+        if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+        jq -n \
+          --arg env "test" \
+          --arg buildId "$(Build.BuildId)" \
+          --arg buildNumber "$(Build.BuildNumber)" \
+          --arg defName "$(Build.DefinitionName)" \
+          --arg branch "$(Build.SourceBranch)" \
+          --arg sha "$(Build.SourceVersion)" \
+          --arg sqlPath "${{ parameters.sqlPath }}" \
+          --arg tags "${{ parameters.tags }}" \
+          --argjson results "$RESULTS" \
+          --argjson summary "$SUMMARY" \
+          --argjson meta "$META" \
+          '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null), include_common: ($meta.include_common // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
+
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Deployment Report (Test)'
+    inputs:
+      PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/test'
+      ArtifactName: 'deployment-report-test'
+      publishLocation: 'Container'
+    condition: always()
 
   - stage: DeployUAT
     displayName: 'Run SQL to UAT'
@@ -461,6 +544,31 @@ stages:
                   inputs:
                     PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/uat'
                     ArtifactName: 'sql-results-uat'
+                    publishLocation: 'Container'
+                  condition: always()
+
+                - task: Bash@3
+                  displayName: 'Assemble deployment.json (UAT)'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      set -euo pipefail
+                      IN_DIR='$(Build.ArtifactStagingDirectory)/sql-results/uat'
+                      OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/uat'
+                      mkdir -p "$OUT_DIR"
+                      RESULTS='[]'
+                      SUMMARY='{ "ran": 0, "failures": 0 }'
+                      META='{}'
+                      if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+                      if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+                      if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+                      jq -n --arg env "uat" --arg buildId "$(Build.BuildId)" --arg buildNumber "$(Build.BuildNumber)" --arg defName "$(Build.DefinitionName)" --arg branch "$(Build.SourceBranch)" --arg sha "$(Build.SourceVersion)" --arg sqlPath "${{ parameters.sqlPath }}" --arg tags "${{ parameters.tags }}" --argjson results "$RESULTS" --argjson summary "$SUMMARY" --argjson meta "$META" '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null), include_common: ($meta.include_common // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
+
+                - task: PublishBuildArtifacts@1
+                  displayName: 'Publish Deployment Report (UAT)'
+                  inputs:
+                    PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/uat'
+                    ArtifactName: 'deployment-report-uat'
                     publishLocation: 'Container'
                   condition: always()
 
@@ -558,201 +666,30 @@ stages:
                     ArtifactName: 'sql-results-prod'
                     publishLocation: 'Container'
                   condition: always()
-      - job: SummarizeDev
-        displayName: 'Build Deployment Report (Dev)'
-        dependsOn: RunSQLDev
-        condition: always()
-        steps:
-          - task: DownloadBuildArtifacts@0
-            inputs:
-              downloadPath: '$(Pipeline.Workspace)/dl'
-              artifactName: 'sql-results-dev'
-            displayName: 'Download SQL Results (Dev)'
 
-          - task: Bash@3
-            displayName: 'Assemble deployment.json (Dev)'
-            inputs:
-              targetType: inline
-              script: |
-                set -euo pipefail
-                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-dev'
-                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/dev'
-                mkdir -p "$OUT_DIR"
-                RESULTS='[]'
-                SUMMARY='{ "ran": 0, "failures": 0 }'
-                META='{}'
-                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
-                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
-                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
-                jq -n \
-                  --arg env "dev" \
-                  --arg buildId "$(Build.BuildId)" \
-                  --arg buildNumber "$(Build.BuildNumber)" \
-                  --arg defName "$(Build.DefinitionName)" \
-                  --arg branch "$(Build.SourceBranch)" \
-                  --arg sha "$(Build.SourceVersion)" \
-                  --arg sqlPath "${{ parameters.sqlPath }}" \
-                  --arg tags "${{ parameters.tags }}" \
-                  --argjson results "$RESULTS" \
-                  --argjson summary "$SUMMARY" \
-                  --argjson meta "$META" \
-                  '{
-                    environment: $env,
-                    build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha },
-                    parameters: { sqlPath: $sqlPath, tags: $tags },
-                    databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) },
-                    timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) },
-                    summary: $summary,
-                    results: $results,
-                    generated_at_epoch_s: now|floor
-                  }' > "$OUT_DIR/deployment.json"
-                echo "Wrote $OUT_DIR/deployment.json"
+                - task: Bash@3
+                  displayName: 'Assemble deployment.json (Prod)'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      set -euo pipefail
+                      IN_DIR='$(Build.ArtifactStagingDirectory)/sql-results/prod'
+                      OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/prod'
+                      mkdir -p "$OUT_DIR"
+                      RESULTS='[]'
+                      SUMMARY='{ "ran": 0, "failures": 0 }'
+                      META='{}'
+                      if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+                      if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+                      if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+                      jq -n --arg env "prod" --arg buildId "$(Build.BuildId)" --arg buildNumber "$(Build.BuildNumber)" --arg defName "$(Build.DefinitionName)" --arg branch "$(Build.SourceBranch)" --arg sha "$(Build.SourceVersion)" --arg sqlPath "${{ parameters.sqlPath }}" --arg tags "${{ parameters.tags }}" --argjson results "$RESULTS" --argjson summary "$SUMMARY" --argjson meta "$META" '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null), include_common: ($meta.include_common // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
 
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Report (Dev)'
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/dev'
-              ArtifactName: 'deployment-report-dev'
-              publishLocation: 'Container'
-            condition: always()
-      - job: SummarizeTest
-        displayName: 'Build Deployment Report (Test)'
-        dependsOn: RunSQLTest
-        condition: always()
-        steps:
-          - task: DownloadBuildArtifacts@0
-            inputs:
-              downloadPath: '$(Pipeline.Workspace)/dl'
-              artifactName: 'sql-results-test'
-            displayName: 'Download SQL Results (Test)'
-
-          - task: Bash@3
-            displayName: 'Assemble deployment.json (Test)'
-            inputs:
-              targetType: inline
-              script: |
-                set -euo pipefail
-                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-test'
-                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/test'
-                mkdir -p "$OUT_DIR"
-                RESULTS='[]'
-                SUMMARY='{ "ran": 0, "failures": 0 }'
-                META='{}'
-                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
-                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
-                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
-                jq -n \
-                  --arg env "test" \
-                  --arg buildId "$(Build.BuildId)" \
-                  --arg buildNumber "$(Build.BuildNumber)" \
-                  --arg defName "$(Build.DefinitionName)" \
-                  --arg branch "$(Build.SourceBranch)" \
-                  --arg sha "$(Build.SourceVersion)" \
-                  --arg sqlPath "${{ parameters.sqlPath }}" \
-                  --arg tags "${{ parameters.tags }}" \
-                  --argjson results "$RESULTS" \
-                  --argjson summary "$SUMMARY" \
-                  --argjson meta "$META" \
-                  '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
-
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Report (Test)'
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/test'
-              ArtifactName: 'deployment-report-test'
-              publishLocation: 'Container'
-            condition: always()
-      - job: SummarizeUAT
-        displayName: 'Build Deployment Report (UAT)'
-        dependsOn: RunSQLUAT
-        condition: always()
-        steps:
-          - task: DownloadBuildArtifacts@0
-            inputs:
-              downloadPath: '$(Pipeline.Workspace)/dl'
-              artifactName: 'sql-results-uat'
-            displayName: 'Download SQL Results (UAT)'
-
-          - task: Bash@3
-            displayName: 'Assemble deployment.json (UAT)'
-            inputs:
-              targetType: inline
-              script: |
-                set -euo pipefail
-                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-uat'
-                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/uat'
-                mkdir -p "$OUT_DIR"
-                RESULTS='[]'
-                SUMMARY='{ "ran": 0, "failures": 0 }'
-                META='{}'
-                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
-                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
-                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
-                jq -n \
-                  --arg env "uat" \
-                  --arg buildId "$(Build.BuildId)" \
-                  --arg buildNumber "$(Build.BuildNumber)" \
-                  --arg defName "$(Build.DefinitionName)" \
-                  --arg branch "$(Build.SourceBranch)" \
-                  --arg sha "$(Build.SourceVersion)" \
-                  --arg sqlPath "${{ parameters.sqlPath }}" \
-                  --arg tags "${{ parameters.tags }}" \
-                  --argjson results "$RESULTS" \
-                  --argjson summary "$SUMMARY" \
-                  --argjson meta "$META" \
-                  '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
-
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Report (UAT)'
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/uat'
-              ArtifactName: 'deployment-report-uat'
-              publishLocation: 'Container'
-            condition: always()
-      - job: SummarizeProd
-        displayName: 'Build Deployment Report (Prod)'
-        dependsOn: RunSQLProd
-        condition: always()
-        steps:
-          - task: DownloadBuildArtifacts@0
-            inputs:
-              downloadPath: '$(Pipeline.Workspace)/dl'
-              artifactName: 'sql-results-prod'
-            displayName: 'Download SQL Results (Prod)'
-
-          - task: Bash@3
-            displayName: 'Assemble deployment.json (Prod)'
-            inputs:
-              targetType: inline
-              script: |
-                set -euo pipefail
-                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-prod'
-                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/prod'
-                mkdir -p "$OUT_DIR"
-                RESULTS='[]'
-                SUMMARY='{ "ran": 0, "failures": 0 }'
-                META='{}'
-                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
-                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
-                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
-                jq -n \
-                  --arg env "prod" \
-                  --arg buildId "$(Build.BuildId)" \
-                  --arg buildNumber "$(Build.BuildNumber)" \
-                  --arg defName "$(Build.DefinitionName)" \
-                  --arg branch "$(Build.SourceBranch)" \
-                  --arg sha "$(Build.SourceVersion)" \
-                  --arg sqlPath "${{ parameters.sqlPath }}" \
-                  --arg tags "${{ parameters.tags }}" \
-                  --argjson results "$RESULTS" \
-                  --argjson summary "$SUMMARY" \
-                  --argjson meta "$META" \
-                  '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
-
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Report (Prod)'
-            inputs:
-              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/prod'
-              ArtifactName: 'deployment-report-prod'
-              publishLocation: 'Container'
-            condition: always()
+                - task: PublishBuildArtifacts@1
+                  displayName: 'Publish Deployment Report (Prod)'
+                  inputs:
+                    PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/prod'
+                    ArtifactName: 'deployment-report-prod'
+                    publishLocation: 'Container'
+                  condition: always()
+      
+      
