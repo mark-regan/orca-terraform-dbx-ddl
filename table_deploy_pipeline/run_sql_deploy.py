@@ -156,6 +156,7 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="Output directory for results")
     ap.add_argument("--warehouse-id", required=True, help="SQL Warehouse ID (required)")
     ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Log verbosity")
+    ap.add_argument("--wait-timeout", default="", help="Optional statement wait_timeout (e.g., 120s). If empty, omit.")
     args = ap.parse_args()
 
     logging.basicConfig(stream=sys.stdout, level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(message)s")
@@ -233,6 +234,9 @@ def main() -> int:
             "warehouse_id": warehouse_id,
             "statement": rendered,
         }
+        if args.wait_timeout:
+            payload["wait_timeout"] = args.wait_timeout
+        logging.debug("Submit payload keys: %s", list(payload.keys()))
         start_ts = int(time.time())
         error_detail = None
         stmt_id = ""
