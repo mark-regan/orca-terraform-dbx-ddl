@@ -113,6 +113,77 @@ def render_sql(text: str) -> str:
     return VAR_PATTERN.sub(repl, text)
 
 
+def split_sql_statements(sql: str) -> list[str]:
+    """Split SQL into individual statements by semicolon, respecting quotes and comments."""
+    stmts: list[str] = []
+    buf: list[str] = []
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    in_block_comment = False
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < n else ""
+
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+                buf.append(ch)
+            i += 1
+            continue
+
+        if in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+
+        # start of comments
+        if not in_single and not in_double:
+            if ch == "-" and nxt == "-":
+                in_line_comment = True
+                i += 2
+                continue
+            if ch == "/" and nxt == "*":
+                in_block_comment = True
+                i += 2
+                continue
+
+        # toggle quotes
+        if ch == "'" and not in_double:
+            in_single = not in_single
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '"' and not in_single:
+            in_double = not in_double
+            buf.append(ch)
+            i += 1
+            continue
+
+        # statement terminator
+        if ch == ";" and not in_single and not in_double:
+            stmt = "".join(buf).strip()
+            if stmt:
+                stmts.append(stmt)
+            buf = []
+            i += 1
+            continue
+
+        buf.append(ch)
+        i += 1
+
+    # last trailing buffer
+    tail = "".join(buf).strip()
+    if tail:
+        stmts.append(tail)
+    return stmts
+
+
 def extract_file_tags(path: Path) -> list[str]:
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -230,55 +301,61 @@ def main() -> int:
         logging.info("Executing: %s", f)
         sql_text = f.read_text(encoding="utf-8")
         rendered = render_sql(sql_text)
-        payload = {
-            "warehouse_id": warehouse_id,
-            "statement": rendered,
-        }
-        if args.wait_timeout:
-            payload["wait_timeout"] = args.wait_timeout
-        logging.debug("Submit payload keys: %s", list(payload.keys()))
-        start_ts = int(time.time())
-        error_detail = None
-        stmt_id = ""
-        status = "SUBMIT_FAILED"
-        try:
-            submit = http_json("POST", f"{host}/api/2.0/sql/statements", token, payload)
-            stmt_id = submit.get("statement_id", "")
-            if not stmt_id:
-                raise RuntimeError(f"Submit response missing statement_id: {submit}")
-            # Poll
-            while True:
-                time.sleep(2)
-                st = http_json("GET", f"{host}/api/2.0/sql/statements/{stmt_id}", token)
-                status = st.get("status", {}).get("state", "")
-                if status in ("SUCCEEDED", "FAILED", "CANCELED"):
-                    if status != "SUCCEEDED":
-                        error_detail = st
-                    break
-            logging.info("Result: %s (statement_id=%s)", status, stmt_id)
-        except Exception as e:
-            logging.exception("Error executing file: %s", f)
-            error_detail = str(e)
-
-        end_ts = int(time.time())
-        if status in ("FAILED", "CANCELED", "SUBMIT_FAILED"):
-            failures += 1
-        rec = {
-            "file": str(f),
-            "status": status or "UNKNOWN",
-            "statement_id": stmt_id or None,
-            "start_epoch_s": start_ts,
-            "end_epoch_s": end_ts,
-            "duration_s": end_ts - start_ts,
-            "tags": extract_file_tags(f),
-        }
-        if error_detail is not None:
+        statements = split_sql_statements(rendered)
+        logging.info("Split into %d statement(s)", len(statements))
+        for idx, stmt in enumerate(statements, start=1):
+            stmt_preview = (stmt[:200] + "...") if len(stmt) > 200 else stmt
+            payload = {
+                "warehouse_id": warehouse_id,
+                "statement": stmt,
+            }
+            if args.wait_timeout:
+                payload["wait_timeout"] = args.wait_timeout
+            logging.debug("Submitting statement %d: %s", idx, stmt_preview)
+            start_ts = int(time.time())
+            error_detail = None
+            stmt_id = ""
+            status = "SUBMIT_FAILED"
             try:
-                rec["error"] = error_detail if isinstance(error_detail, str) else error_detail
-            except Exception:
-                rec["error"] = str(error_detail)
-        with results_path.open("a", encoding="utf-8") as rf:
-            rf.write(json.dumps(rec) + "\n")
+                submit = http_json("POST", f"{host}/api/2.0/sql/statements", token, payload)
+                stmt_id = submit.get("statement_id", "")
+                if not stmt_id:
+                    raise RuntimeError(f"Submit response missing statement_id: {submit}")
+                while True:
+                    time.sleep(2)
+                    st = http_json("GET", f"{host}/api/2.0/sql/statements/{stmt_id}", token)
+                    status = st.get("status", {}).get("state", "")
+                    if status in ("SUCCEEDED", "FAILED", "CANCELED"):
+                        if status != "SUCCEEDED":
+                            error_detail = st
+                        break
+                logging.info("Statement %d result: %s (id=%s)", idx, status, stmt_id)
+            except Exception as e:
+                logging.exception("Error executing statement %d in file %s", idx, f)
+                error_detail = str(e)
+
+            end_ts = int(time.time())
+            if status in ("FAILED", "CANCELED", "SUBMIT_FAILED"):
+                failures += 1
+            ran += 0  # already incremented per filtered statement
+            rec = {
+                "file": str(f),
+                "statement_index": idx,
+                "statement_preview": stmt_preview,
+                "status": status or "UNKNOWN",
+                "statement_id": stmt_id or None,
+                "start_epoch_s": start_ts,
+                "end_epoch_s": end_ts,
+                "duration_s": end_ts - start_ts,
+                "tags": extract_file_tags(f),
+            }
+            if error_detail is not None:
+                try:
+                    rec["error"] = error_detail if isinstance(error_detail, str) else error_detail
+                except Exception:
+                    rec["error"] = str(error_detail)
+            with results_path.open("a", encoding="utf-8") as rf:
+                rf.write(json.dumps(rec) + "\n")
 
     (out_dir / "summary.json").write_text(json.dumps({"ran": ran, "failures": failures}), encoding="utf-8")
     metadata["end_epoch_s"] = int(time.time())
