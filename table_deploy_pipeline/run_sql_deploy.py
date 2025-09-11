@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import logging
 import os
 import re
 import sys
@@ -80,6 +81,7 @@ def http_json(method: str, url: str, token: str, body: dict | None = None) -> di
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Content-Type", "application/json")
     try:
+        logging.debug("HTTP %s %s", method, url)
         with urlopen(req, timeout=60) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except HTTPError as e:
@@ -87,20 +89,17 @@ def http_json(method: str, url: str, token: str, body: dict | None = None) -> di
             detail = e.read().decode("utf-8")
         except Exception:
             detail = str(e)
+        logging.error("HTTP %s error: %s %s", method, e.code, e.reason)
         raise RuntimeError(f"HTTP {e.code} {e.reason}: {detail}")
     except URLError as e:
+        logging.error("Request error on %s: %s", url, e)
         raise RuntimeError(f"Request error: {e}")
 
 
-def resolve_warehouse_id(host: str, token: str, warehouse_id: str | None, warehouse_name: str | None) -> str:
-    if warehouse_id:
-        return warehouse_id
-    if warehouse_name:
-        data = http_json("GET", f"{host}/api/2.0/sql/warehouses", token)
-        for wh in data.get("warehouses", []):
-            if wh.get("name") == warehouse_name:
-                return wh.get("id")
-    raise RuntimeError("Warehouse ID not found. Provide --warehouse-id or --warehouse-name (or set env/variable group).")
+def ensure_warehouse_id(warehouse_id: str | None) -> str:
+    if not warehouse_id:
+        raise RuntimeError("Missing required --warehouse-id (set in variable group)")
+    return warehouse_id
 
 
 VAR_PATTERN = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
@@ -155,9 +154,11 @@ def main() -> int:
     ap.add_argument("--host", required=True, help="Databricks workspace host, e.g. https://adb-xxx.azuredatabricks.net")
     ap.add_argument("--root", default="table_deploy_pipeline/sql", help="SQL root directory")
     ap.add_argument("--out", required=True, help="Output directory for results")
-    ap.add_argument("--warehouse-id", default="", help="SQL Warehouse ID (preferred)")
-    ap.add_argument("--warehouse-name", default="", help="SQL Warehouse name (fallback)")
+    ap.add_argument("--warehouse-id", required=True, help="SQL Warehouse ID (required)")
+    ap.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Log verbosity")
     args = ap.parse_args()
+
+    logging.basicConfig(stream=sys.stdout, level=getattr(logging, args.log_level), format="%(asctime)s %(levelname)s %(message)s")
 
     host = args.host.rstrip("/")
     root = Path(args.root)
@@ -166,14 +167,19 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    logging.info("Starting SQL deploy: env=%s host=%s root=%s out=%s", args.env, host, root, out_dir)
     if not env_dir.exists() and not common_dir.exists():
-        print(f"No SQL directories found at {env_dir} or {common_dir}", file=sys.stderr)
+        logging.error("No SQL directories found at %s or %s", env_dir, common_dir)
         return 1
 
+    logging.info("Acquiring AAD token for Databricks resource")
     token = acquire_aad_token()
-    warehouse_id = resolve_warehouse_id(host, token, args.warehouse_id or None, args.warehouse_name or None)
+    logging.info("Token acquired")
+    warehouse_id = ensure_warehouse_id(args.warehouse_id)
+    logging.info("Using warehouse_id=%s", warehouse_id)
 
     tags_filter, include_common = load_deploy_config(env_dir, common_dir)
+    logging.info("Deploy config: include_common=%s tags=%s", include_common, tags_filter)
 
     metadata = {
         "environment": args.env,
@@ -188,11 +194,15 @@ def main() -> int:
 
     files: list[Path] = []
     if include_common and common_dir.exists():
-        files += sorted(common_dir.rglob("*.sql"))
+        common_files = sorted(common_dir.rglob("*.sql"))
+        logging.info("Found %d 'common' SQL files", len(common_files))
+        files += common_files
     if env_dir.exists():
-        files += sorted(env_dir.rglob("*.sql"))
+        env_files = sorted(env_dir.rglob("*.sql"))
+        logging.info("Found %d '%s' SQL files", len(env_files), args.env)
+        files += env_files
     if not files:
-        print("No .sql files found to execute.")
+        logging.warning("No .sql files found to execute.")
         (out_dir / "summary.json").write_text(json.dumps({"ran": 0, "failures": 0}), encoding="utf-8")
         metadata["end_epoch_s"] = int(time.time())
         (out_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -213,8 +223,10 @@ def main() -> int:
     failures = 0
     for f in files:
         if not matches_tags(f):
+            logging.debug("Skipping (no matching tag): %s", f)
             continue
         ran += 1
+        logging.info("Executing: %s", f)
         sql_text = f.read_text(encoding="utf-8")
         rendered = render_sql(sql_text)
         payload = {
@@ -240,7 +252,9 @@ def main() -> int:
                     if status != "SUCCEEDED":
                         error_detail = st
                     break
+            logging.info("Result: %s (statement_id=%s)", status, stmt_id)
         except Exception as e:
+            logging.exception("Error executing file: %s", f)
             error_detail = str(e)
 
         end_ts = int(time.time())
@@ -266,6 +280,7 @@ def main() -> int:
     (out_dir / "summary.json").write_text(json.dumps({"ran": ran, "failures": failures}), encoding="utf-8")
     metadata["end_epoch_s"] = int(time.time())
     (out_dir / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    logging.info("Completed: ran=%d failures=%d", ran, failures)
     return 0 if failures == 0 else 1
 
 
