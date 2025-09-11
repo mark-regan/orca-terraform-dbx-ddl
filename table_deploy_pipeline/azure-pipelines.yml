@@ -6,7 +6,7 @@ trigger:
       - main
   paths:
     include:
-      - 'table_deploy_pipeline/**'
+      - '**'
       - 'tables/**'
 
 pool:
@@ -64,12 +64,12 @@ stages:
                       python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
                       if [ -z "$DATABRICKS_HOST" ]; then echo "Databricks host (databricks_host) not set" >&2; exit 1; fi
-                      python3 table_deploy_pipeline/run_sql_deploy.py \
+                      python3 run_sql_deploy.py \
                         --env dev \
                         --host "$DATABRICKS_HOST" \
-                        --root table_deploy_pipeline/sql \
+                        --root sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/dev" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)" 
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (Dev)'
@@ -85,7 +85,7 @@ stages:
                     targetType: inline
                     script: |
                       set -euo pipefail
-                      python3 table_deploy_pipeline/assemble_report.py \
+                      python3 assemble_report.py \
                         --env dev \
                         --in  '$(Build.ArtifactStagingDirectory)/sql-results/dev' \
                         --out '$(Build.ArtifactStagingDirectory)/deployment/dev'
@@ -145,12 +145,12 @@ stages:
                       sudo apt-get update -y && sudo apt-get install -y jq
                       python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
-                      python3 table_deploy_pipeline/run_sql_deploy.py \
+                      python3 run_sql_deploy.py \
                         --env test \
                         --host "$DATABRICKS_HOST" \
-                        --root table_deploy_pipeline/sql \
+                        --root sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/test" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)" 
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (Test)'
@@ -166,7 +166,7 @@ stages:
                     targetType: inline
                     script: |
                       set -euo pipefail
-                      python3 table_deploy_pipeline/assemble_report.py \
+                      python3 assemble_report.py \
                         --env test \
                         --in  '$(Build.ArtifactStagingDirectory)/sql-results/test' \
                         --out '$(Build.ArtifactStagingDirectory)/deployment/test'
@@ -226,12 +226,12 @@ stages:
                       sudo apt-get update -y && sudo apt-get install -y jq
                       python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
-                      python3 table_deploy_pipeline/run_sql_deploy.py \
+                      python3 run_sql_deploy.py \
                         --env uat \
                         --host "$DATABRICKS_HOST" \
-                        --root table_deploy_pipeline/sql \
+                        --root sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/uat" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)" 
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (UAT)'
@@ -247,7 +247,7 @@ stages:
                     targetType: inline
                     script: |
                       set -euo pipefail
-                      python3 table_deploy_pipeline/assemble_report.py \
+                      python3 assemble_report.py \
                         --env uat \
                         --in  '$(Build.ArtifactStagingDirectory)/sql-results/uat' \
                         --out '$(Build.ArtifactStagingDirectory)/deployment/uat'
@@ -307,12 +307,12 @@ stages:
                       sudo apt-get update -y && sudo apt-get install -y jq
                       python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
-                      python3 table_deploy_pipeline/run_sql_deploy.py \
+                      python3 run_sql_deploy.py \
                         --env prod \
                         --host "$DATABRICKS_HOST" \
-                        --root table_deploy_pipeline/sql \
+                        --root sql \
                         --out "$(Build.ArtifactStagingDirectory)/sql-results/prod" \
-                        --warehouse-id "$(databricks_sql_warehouse_id)"
+                        --warehouse-id "$(databricks_sql_warehouse_id)" 
 
                 - task: PublishBuildArtifacts@1
                   displayName: 'Publish SQL Results (Prod)'
@@ -328,7 +328,7 @@ stages:
                     targetType: inline
                     script: |
                       set -euo pipefail
-                      python3 table_deploy_pipeline/assemble_report.py \
+                      python3 assemble_report.py \
                         --env prod \
                         --in  '$(Build.ArtifactStagingDirectory)/sql-results/prod' \
                         --out '$(Build.ArtifactStagingDirectory)/deployment/prod'

@@ -1,4 +1,4 @@
 {
-  "includeCommon": true,
+  "includeCommon": false,
   "tags": ["ddl", "dml"]
 }
