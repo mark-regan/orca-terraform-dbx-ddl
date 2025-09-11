@@ -112,9 +112,24 @@ Permissions
 - If your SQL creates or alters Unity Catalog objects, ensure the principal has CREATE/ALTER/USAGE privileges at the appropriate scopes
 
 Triggers and environments
-- develop and feature/* branches -> Dev stage
-- release/* branches -> Test and then UAT stages
-- main branch -> Prod stage
+- feature/* and develop -> Dev stage (environment: dev)
+- develop -> Test stage (environment: test)
+- release/* -> UAT stage (environment: uat, with approvals)
+- main -> Prod stage (environment: prod, with approvals)
+
+Environment approvals
+- Approvals are configured at the Azure DevOps Environment level (not in YAML).
+- Steps to configure:
+  1) Azure DevOps → Pipelines → Environments
+  2) Open the `uat` environment → Approvals and checks → Add approval
+  3) Choose approvers (users or groups), set timeout and instructions, then Save
+  4) Repeat for the `prod` environment
+- Recommended approver groups (examples):
+  - UAT: Data Platform Leads, QA Leads, Product Owner
+  - Prod: Release Managers, Platform Owners, Change Advisory Board (CAB)
+- Notes:
+  - The pipeline pauses at the environment boundary until the approval is granted.
+  - You can combine approvals with other checks (branch control, work item linking, or business hours) per environment.
 
 Parameters
 - sqlPath (default: table_deploy_pipeline/sql): root path to SQL files
