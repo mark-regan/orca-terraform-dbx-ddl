@@ -1,0 +1,722 @@
+trigger:
+  branches:
+    include:
+      - develop
+      - release/*
+      - main
+  paths:
+    include:
+      - 'table_deploy_pipeline/**'
+      - 'tables/**'
+
+parameters:
+  - name: sqlPath
+    type: string
+    default: 'table_deploy_pipeline/sql'
+  - name: warehouseIdOverride
+    type: string
+    default: ''
+  - name: tags
+    type: string
+    default: ''
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - group: dbx-common
+
+stages:
+  - stage: DeployDev
+    displayName: 'Run SQL to Dev'
+    condition: or(eq(variables['Build.SourceBranch'], 'refs/heads/develop'), startsWith(variables['Build.SourceBranch'], 'refs/heads/feature/'))
+    variables:
+      - group: dbx-dev-vars
+      - group: dbx-unity-dev-vars
+      - group: dbx-azure-dev-vars
+      - group: dbx-common
+    jobs:
+      - job: RunSQLDev
+        displayName: 'Execute SQL (Dev)'
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: 'Login (Federated)'
+            inputs:
+              azureSubscription: 'cbs-data-preprod-mi-reporting-dev'
+              addSpnToEnvironment: true
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "##vso[task.setvariable variable=servicePrincipalId]$servicePrincipalId"
+                echo "##vso[task.setvariable variable=idToken]$idToken"
+                echo "##vso[task.setvariable variable=tenantId]$tenantId"
+
+          - task: Bash@3
+            displayName: 'Azure CLI Login (OIDC)'
+            inputs:
+              targetType: inline
+              script: >-
+                az login --service-principal --username='$(servicePrincipalId)' --tenant='$(tenantId)'
+                --federated-token='$(idToken)' --allow-no-subscriptions
+
+          - task: Bash@3
+            displayName: 'Execute SQL Files (Dev)'
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+
+                # Install dependencies
+                sudo apt-get update -y
+                sudo apt-get install -y jq gettext-base
+
+                : "${DATABRICKS_HOST:=$(databricks_host)}"
+                if [ -z "$DATABRICKS_HOST" ]; then
+                  echo "Databricks host is not set (databricks_host)." >&2
+                  exit 1
+                fi
+
+                echo "Using Databricks host: $DATABRICKS_HOST"
+
+                # Get AAD access token for Azure Databricks resource
+                DBX_TOKEN=$(az account get-access-token --resource=https://databricks.azure.net/ --query accessToken -o tsv)
+                if [ -z "$DBX_TOKEN" ]; then
+                  echo "Failed to acquire AAD access token for Databricks." >&2
+                  exit 1
+                fi
+
+                # Determine Warehouse ID: override > var group ID > name lookup
+                WAREHOUSE_ID='${{ parameters.warehouseIdOverride }}'
+                if [ -z "$WAREHOUSE_ID" ]; then
+                  WAREHOUSE_ID="$(databricks_sql_warehouse_id)"
+                fi
+                if [ -z "$WAREHOUSE_ID" ] && [ -n "$(databricks_sql_warehouse_name)" ]; then
+                  echo "Resolving warehouse by name: $(databricks_sql_warehouse_name)"
+                  WAREHOUSE_ID=$(curl -sfS -H "Authorization: Bearer $DBX_TOKEN" \
+                    "$DATABRICKS_HOST/api/2.0/sql/warehouses" \
+                    | jq -r --arg NAME "$(databricks_sql_warehouse_name)" '.warehouses[] | select(.name==$NAME) | .id' | head -n1 || true)
+                fi
+                if [ -z "$WAREHOUSE_ID" ]; then
+                  echo "Warehouse ID not found. Provide variable 'databricks_sql_warehouse_id' or 'databricks_sql_warehouse_name', or set parameter warehouseIdOverride." >&2
+                  exit 1
+                fi
+                echo "Using SQL Warehouse: $WAREHOUSE_ID"
+
+                # Resolve SQL path for this environment
+                ROOT_PATH='${{ parameters.sqlPath }}'
+                ENV_PATH="$ROOT_PATH/dev"
+                COMMON_PATH="$ROOT_PATH/common"
+                RESULTS_DIR="$(Build.ArtifactStagingDirectory)/sql-results/dev"
+                rm -rf "$RESULTS_DIR" && mkdir -p "$RESULTS_DIR"
+                RESULTS_JSONL="$RESULTS_DIR/result.jsonl"
+                SUMMARY_JSON="$RESULTS_DIR/summary.json"
+                START_TS=$(date +%s)
+                jq -n \
+                  --arg env "dev" \
+                  --arg host "$DATABRICKS_HOST" \
+                  --arg wh "$WAREHOUSE_ID" \
+                  --arg tags "${{ parameters.tags }}" \
+                  --arg root "${{ parameters.sqlPath }}" \
+                  --argjson start "$START_TS" \
+                  '{environment:$env, databricks_host:$host, warehouse_id:$wh, tags:$tags, sql_root:$root, start_epoch_s:$start}' \
+                  > "$RESULTS_DIR/metadata.json"
+                if [ ! -d "$ENV_PATH" ] && [ ! -d "$COMMON_PATH" ]; then
+                  echo "No SQL directories found at $ENV_PATH or $COMMON_PATH." >&2
+                  exit 1
+                fi
+
+                # Result writer
+                write_result() {
+                  local file="$1"; local status="$2"; local stmt_id="$3"; local start_ts="$4"; local end_ts="$5"; local tags_line="$6"; local err="${7:-}"
+                  local duration=$(( end_ts - start_ts ))
+                  jq -n \
+                    --arg file "$file" \
+                    --arg status "$status" \
+                    --arg statement_id "$stmt_id" \
+                    --arg start "$start_ts" \
+                    --arg end "$end_ts" \
+                    --arg duration "$duration" \
+                    --arg tags "$tags_line" \
+                    --arg error "$err" \
+                    '{file: $file, status: $status, statement_id: $statement_id, start_epoch_s: ($start|tonumber), end_epoch_s: ($end|tonumber), duration_s: ($duration|tonumber), tags: ($tags | split(",") | map(. | gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))), error: (if $error == "" then null else $error end)}' \
+                    >> "$RESULTS_JSONL"
+                }
+
+                # Render SQL with env vars and execute
+                run_sql_file() {
+                  local file="$1"
+                  echo "--- Executing: $file"
+                  local TAGS_LINE
+                  TAGS_LINE=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 | cut -d':' -f2- | tr -d '\r' | tr -d '|' || true)
+                  # Extract placeholders like ${VAR_NAME} and render only those
+                  local vars;
+                  vars=$(grep -o '\${[A-Za-z0-9_][A-Za-z0-9_]*}' "$file" | tr -d '${}' | sort -u | awk '{printf "$%s ", toupper($1)}' || true)
+                  local rendered
+                  if [ -n "$vars" ]; then
+                    rendered=$(envsubst "$vars" < "$file")
+                  else
+                    rendered=$(cat "$file")
+                  fi
+                  local payload
+                  payload=$(jq -n --arg w "$WAREHOUSE_ID" --arg q "$rendered" '{warehouse_id: $w, statement: $q, wait_timeout: "120s"}')
+                  local start_ts end_ts
+                  start_ts=$(date +%s)
+                  local submit
+                  submit=$(curl -sfS -X POST "$DATABRICKS_HOST/api/2.0/sql/statements" \
+                    -H "Authorization: Bearer $DBX_TOKEN" -H "Content-Type: application/json" \
+                    -d "$payload")
+                  local stmt_id
+                  stmt_id=$(echo "$submit" | jq -r .statement_id)
+                  if [ -z "$stmt_id" ] || [ "$stmt_id" = "null" ]; then
+                    echo "Failed to submit statement for $file" >&2
+                    echo "$submit" >&2
+                    end_ts=$(date +%s)
+                    write_result "$file" "SUBMIT_FAILED" "" "$start_ts" "$end_ts" "$TAGS_LINE" "$(echo "$submit" | jq -c . 2>/dev/null || echo "$submit")"
+                    return 1
+                  fi
+                  # Poll until terminal state
+                  while true; do
+                    sleep 2
+                    local st
+                    st=$(curl -sfS "$DATABRICKS_HOST/api/2.0/sql/statements/$stmt_id" -H "Authorization: Bearer $DBX_TOKEN")
+                    local status
+                    status=$(echo "$st" | jq -r .status.state)
+                    if [ "$status" = "SUCCEEDED" ]; then
+                      echo "SUCCESS: $file"
+                      end_ts=$(date +%s)
+                      write_result "$file" "$status" "$stmt_id" "$start_ts" "$end_ts" "$TAGS_LINE" ""
+                      break
+                    elif [ "$status" = "FAILED" ] || [ "$status" = "CANCELED" ]; then
+                      echo "ERROR ($status): $file" >&2
+                      echo "$st" | jq -r '.error // .status' >&2
+                      end_ts=$(date +%s)
+                      write_result "$file" "$status" "$stmt_id" "$start_ts" "$end_ts" "$TAGS_LINE" "$(echo "$st" | jq -c . 2>/dev/null || echo "$st")"
+                      return 1
+                    fi
+                  done
+                }
+
+                # Execute in deterministic order: common then env-specific
+                shopt -s nullglob
+                files=( )
+                if [ -d "$COMMON_PATH" ]; then
+                  while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z)
+                fi
+                if [ -d "$ENV_PATH" ]; then
+                  while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z)
+                fi
+
+                if [ ${#files[@]} -eq 0 ]; then
+                  echo "No .sql files found to execute." >&2
+                  exit 0
+                fi
+
+                # Tag filtering
+                TAGS_FILTER='${{ parameters.tags }}'
+                to_lower() { awk '{print tolower($0)}'; }
+                match_tags() {
+                  local file="$1"
+                  [ -z "$TAGS_FILTER" ] && return 0
+                  local want
+                  IFS=',' read -r -a want <<< "$(echo "$TAGS_FILTER" | tr -d ' ' | to_lower)"
+                  # Parse tags from file header comment: -- tags: a,b,c
+                  local header; header=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 || true)
+                  [ -z "$header" ] && return 1
+                  local have
+                  have=$(echo "$header" | cut -d':' -f2- | tr ',' '\n' | tr -d ' ' | to_lower)
+                  for t in "${want[@]}"; do
+                    if echo "$have" | grep -qx ".$t\|$t" || echo "$have" | grep -q "^$t$\|^$t,\|,$t$\|,$t,\|^ *$t *$"; then
+                      return 0
+                    fi
+                    if echo "$have" | grep -q "\b$t\b"; then return 0; fi
+                  done
+                  return 1
+                }
+
+                failures=0
+                ran=0
+                for f in "${files[@]}"; do
+                  if match_tags "$f"; then
+                    if ! run_sql_file "$f"; then failures=$((failures+1)); fi
+                    ran=$((ran+1))
+                  else
+                    echo "Skipping (no matching tag): $f"
+                  fi
+                done
+                jq -n --arg ran "$ran" --arg failures "$failures" '{ran: ($ran|tonumber), failures: ($failures|tonumber)}' > "$SUMMARY_JSON"
+                END_TS=$(date +%s)
+                tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson end "$END_TS" '. + {end_epoch_s: $end}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"
+                echo "Wrote results to $RESULTS_DIR"
+                [ "$failures" -eq 0 ]
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish SQL Results (Dev)'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/dev'
+              ArtifactName: 'sql-results-dev'
+              publishLocation: 'Container'
+            condition: always()
+
+  - stage: DeployTest
+    displayName: 'Run SQL to Test'
+    condition: startsWith(variables['Build.SourceBranch'], 'refs/heads/release/')
+    variables:
+      - group: dbx-test-vars
+      - group: dbx-unity-test-vars
+      - group: dbx-azure-test-vars
+      - group: dbx-common
+    jobs:
+      - job: RunSQLTest
+        displayName: 'Execute SQL (Test)'
+        steps:
+          - checkout: self
+
+          - task: AzureCLI@2
+            displayName: 'Login (Federated)'
+            inputs:
+              azureSubscription: 'cbs-data-preprod-mi-reporting-dev'
+              addSpnToEnvironment: true
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "##vso[task.setvariable variable=servicePrincipalId]$servicePrincipalId"
+                echo "##vso[task.setvariable variable=idToken]$idToken"
+                echo "##vso[task.setvariable variable=tenantId]$tenantId"
+
+          - task: Bash@3
+            displayName: 'Azure CLI Login (OIDC)'
+            inputs:
+              targetType: inline
+              script: >-
+                az login --service-principal --username='$(servicePrincipalId)' --tenant='$(tenantId)'
+                --federated-token='$(idToken)' --allow-no-subscriptions
+
+          - task: Bash@3
+            displayName: 'Execute SQL Files (Test)'
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+                sudo apt-get update -y && sudo apt-get install -y jq gettext-base
+                : "${DATABRICKS_HOST:=$(databricks_host)}"
+                DBX_TOKEN=$(az account get-access-token --resource=https://databricks.azure.net/ --query accessToken -o tsv)
+                WAREHOUSE_ID='${{ parameters.warehouseIdOverride }}'
+                if [ -z "$WAREHOUSE_ID" ]; then WAREHOUSE_ID="$(databricks_sql_warehouse_id)"; fi
+                if [ -z "$WAREHOUSE_ID" ] && [ -n "$(databricks_sql_warehouse_name)" ]; then
+                  WAREHOUSE_ID=$(curl -sfS -H "Authorization: Bearer $DBX_TOKEN" "$DATABRICKS_HOST/api/2.0/sql/warehouses" | jq -r --arg NAME "$(databricks_sql_warehouse_name)" '.warehouses[] | select(.name==$NAME) | .id' | head -n1 || true)
+                fi
+                if [ -z "$WAREHOUSE_ID" ]; then echo "Missing warehouse id/name" >&2; exit 1; fi
+                ROOT_PATH='${{ parameters.sqlPath }}'; ENV_PATH="$ROOT_PATH/test"; COMMON_PATH="$ROOT_PATH/common"; RESULTS_DIR="$(Build.ArtifactStagingDirectory)/sql-results/test"; rm -rf "$RESULTS_DIR" && mkdir -p "$RESULTS_DIR"; RESULTS_JSONL="$RESULTS_DIR/result.jsonl"; SUMMARY_JSON="$RESULTS_DIR/summary.json"; START_TS=$(date +%s); jq -n --arg env "test" --arg host "$DATABRICKS_HOST" --arg wh "$WAREHOUSE_ID" --arg tags "${{ parameters.tags }}" --arg root "${{ parameters.sqlPath }}" --argjson start "$START_TS" '{environment:$env, databricks_host:$host, warehouse_id:$wh, tags:$tags, sql_root:$root, start_epoch_s:$start}' > "$RESULTS_DIR/metadata.json"
+                run_sql_file() {
+                  local file="$1"; echo "--- Executing: $file";
+                  local TAGS_LINE; TAGS_LINE=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 | cut -d':' -f2- | tr -d '\r' | tr -d '|' || true);
+                  local vars; vars=$(grep -o '\${[A-Za-z0-9_][A-Za-z0-9_]*}' "$file" | tr -d '${}' | sort -u | awk '{printf "$%s ", toupper($1)}' || true)
+                  local rendered; if [ -n "$vars" ]; then rendered=$(envsubst "$vars" < "$file"); else rendered=$(cat "$file"); fi
+                  local payload; payload=$(jq -n --arg w "$WAREHOUSE_ID" --arg q "$rendered" '{warehouse_id: $w, statement: $q, wait_timeout: "120s"}')
+                  local start_ts end_ts; start_ts=$(date +%s)
+                  local submit; submit=$(curl -sfS -X POST "$DATABRICKS_HOST/api/2.0/sql/statements" -H "Authorization: Bearer $DBX_TOKEN" -H "Content-Type: application/json" -d "$payload")
+                  local stmt_id; stmt_id=$(echo "$submit" | jq -r .statement_id)
+                  while true; do sleep 2; local st; st=$(curl -sfS "$DATABRICKS_HOST/api/2.0/sql/statements/$stmt_id" -H "Authorization: Bearer $DBX_TOKEN"); local status; status=$(echo "$st" | jq -r .status.state); [ "$status" = "SUCCEEDED" ] && { end_ts=$(date +%s); jq -n --arg file "$file" --arg status "$status" --arg statement_id "$stmt_id" --arg start "$start_ts" --arg end "$end_ts" --arg tags "$TAGS_LINE" '{file:$file,status:$status,statement_id:$statement_id,start_epoch_s:($start|tonumber),end_epoch_s:($end|tonumber),duration_s:(($end|tonumber)-($start|tonumber)),tags:($tags|split(",")|map(.|gsub("^\\s+|\\s+$";""))|map(select(.!="")))}' >> "$RESULTS_JSONL"; break; }; [ "$status" = "FAILED" -o "$status" = "CANCELED" ] && { end_ts=$(date +%s); echo "$st" >&2; jq -n --arg file "$file" --arg status "$status" --arg statement_id "$stmt_id" --arg start "$start_ts" --arg end "$end_ts" --arg tags "$TAGS_LINE" --arg error "$(echo "$st" | jq -c . 2>/dev/null || echo "$st")" '{file:$file,status:$status,statement_id:$statement_id,start_epoch_s:($start|tonumber),end_epoch_s:($end|tonumber),duration_s:(($end|tonumber)-($start|tonumber)),tags:($tags|split(",")|map(.|gsub("^\\s+|\\s+$";""))|map(select(.!=""))),error:$error}' >> "$RESULTS_JSONL"; exit 1; }; done
+                }
+                shopt -s nullglob
+                files=( )
+                if [ -d "$COMMON_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                if [ -d "$ENV_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                TAGS_FILTER='${{ parameters.tags }}'
+                to_lower() { awk '{print tolower($0)}'; }
+                match_tags() {
+                  local file="$1"; [ -z "$TAGS_FILTER" ] && return 0
+                  local want; IFS=',' read -r -a want <<< "$(echo "$TAGS_FILTER" | tr -d ' ' | to_lower)"
+                  local header; header=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 || true)
+                  [ -z "$header" ] && return 1
+                  local have; have=$(echo "$header" | cut -d':' -f2- | tr ',' '\n' | tr -d ' ' | to_lower)
+                  for t in "${want[@]}"; do if echo "$have" | grep -q "\b$t\b"; then return 0; fi; done
+                  return 1
+                }
+                failures=0; ran=0
+                for f in "${files[@]}"; do if match_tags "$f"; then if ! run_sql_file "$f"; then failures=$((failures+1)); fi; ran=$((ran+1)); else echo "Skipping (no matching tag): $f"; fi; done
+                jq -n --arg ran "$ran" --arg failures "$failures" '{ran: ($ran|tonumber), failures: ($failures|tonumber)}' > "$SUMMARY_JSON"; END_TS=$(date +%s); tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson end "$END_TS" '. + {end_epoch_s: $end}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"; echo "Wrote results to $RESULTS_DIR"; [ "$failures" -eq 0 ]
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish SQL Results (Test)'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/test'
+              ArtifactName: 'sql-results-test'
+              publishLocation: 'Container'
+            condition: always()
+
+  - stage: DeployUAT
+    displayName: 'Run SQL to UAT'
+    condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/heads/release/'))
+    variables:
+      - group: dbx-uat-vars
+      - group: dbx-unity-uat-vars
+      - group: dbx-azure-uat-vars
+      - group: dbx-common
+    jobs:
+      - deployment: RunSQLUAT
+        displayName: 'Execute SQL (UAT)'
+        environment: uat
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: AzureCLI@2
+                  displayName: 'Login (Federated)'
+                  inputs:
+                    azureSubscription: 'cbs-data-preprod-mi-reporting-dev'
+                    addSpnToEnvironment: true
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      echo "##vso[task.setvariable variable=servicePrincipalId]$servicePrincipalId"
+                      echo "##vso[task.setvariable variable=idToken]$idToken"
+                      echo "##vso[task.setvariable variable=tenantId]$tenantId"
+                - task: Bash@3
+                  displayName: 'Azure CLI Login (OIDC)'
+                  inputs:
+                    targetType: inline
+                    script: >-
+                      az login --service-principal --username='$(servicePrincipalId)' --tenant='$(tenantId)'
+                      --federated-token='$(idToken)' --allow-no-subscriptions
+                - task: Bash@3
+                  displayName: 'Execute SQL Files (UAT)'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      set -euo pipefail
+                      sudo apt-get update -y && sudo apt-get install -y jq gettext-base
+                      : "${DATABRICKS_HOST:=$(databricks_host)}"
+                      DBX_TOKEN=$(az account get-access-token --resource=https://databricks.azure.net/ --query accessToken -o tsv)
+                      WAREHOUSE_ID='${{ parameters.warehouseIdOverride }}'
+                      if [ -z "$WAREHOUSE_ID" ]; then WAREHOUSE_ID="$(databricks_sql_warehouse_id)"; fi
+                      if [ -z "$WAREHOUSE_ID" ] && [ -n "$(databricks_sql_warehouse_name)" ]; then
+                        WAREHOUSE_ID=$(curl -sfS -H "Authorization: Bearer $DBX_TOKEN" "$DATABRICKS_HOST/api/2.0/sql/warehouses" | jq -r --arg NAME "$(databricks_sql_warehouse_name)" '.warehouses[] | select(.name==$NAME) | .id' | head -n1 || true)
+                      fi
+                      if [ -z "$WAREHOUSE_ID" ]; then echo "Missing warehouse id/name" >&2; exit 1; fi
+                      ROOT_PATH='${{ parameters.sqlPath }}'; ENV_PATH="$ROOT_PATH/uat"; COMMON_PATH="$ROOT_PATH/common"; RESULTS_DIR="$(Build.ArtifactStagingDirectory)/sql-results/uat"; rm -rf "$RESULTS_DIR" && mkdir -p "$RESULTS_DIR"; RESULTS_JSONL="$RESULTS_DIR/result.jsonl"; SUMMARY_JSON="$RESULTS_DIR/summary.json"; START_TS=$(date +%s); jq -n --arg env "uat" --arg host "$DATABRICKS_HOST" --arg wh "$WAREHOUSE_ID" --arg tags "${{ parameters.tags }}" --arg root "${{ parameters.sqlPath }}" --argjson start "$START_TS" '{environment:$env, databricks_host:$host, warehouse_id:$wh, tags:$tags, sql_root:$root, start_epoch_s:$start}' > "$RESULTS_DIR/metadata.json"
+                      run_sql_file() {
+                        local file="$1"; echo "--- Executing: $file";
+                        local TAGS_LINE; TAGS_LINE=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 | cut -d':' -f2- | tr -d '\r' | tr -d '|' || true)
+                        local vars; vars=$(grep -o '\${[A-Za-z0-9_][A-Za-z0-9_]*}' "$file" | tr -d '${}' | sort -u | awk '{printf "$%s ", toupper($1)}' || true)
+                        local rendered; if [ -n "$vars" ]; then rendered=$(envsubst "$vars" < "$file"); else rendered=$(cat "$file"); fi
+                        local payload; payload=$(jq -n --arg w "$WAREHOUSE_ID" --arg q "$rendered" '{warehouse_id: $w, statement: $q, wait_timeout: "120s"}')
+                        local start_ts end_ts; start_ts=$(date +%s)
+                        local submit; submit=$(curl -sfS -X POST "$DATABRICKS_HOST/api/2.0/sql/statements" -H "Authorization: Bearer $DBX_TOKEN" -H "Content-Type: application/json" -d "$payload")
+                        local stmt_id; stmt_id=$(echo "$submit" | jq -r .statement_id)
+                        while true; do sleep 2; local st; st=$(curl -sfS "$DATABRICKS_HOST/api/2.0/sql/statements/$stmt_id" -H "Authorization: Bearer $DBX_TOKEN"); local status; status=$(echo "$st" | jq -r .status.state); [ "$status" = "SUCCEEDED" ] && { end_ts=$(date +%s); jq -n --arg file "$file" --arg status "$status" --arg statement_id "$stmt_id" --arg start "$start_ts" --arg end "$end_ts" --arg tags "$TAGS_LINE" '{file:$file,status:$status,statement_id:$statement_id,start_epoch_s:($start|tonumber),end_epoch_s:($end|tonumber),duration_s:(($end|tonumber)-($start|tonumber)),tags:($tags|split(",")|map(.|gsub("^\\s+|\\s+$";""))|map(select(.!="")))}' >> "$RESULTS_JSONL"; break; }; [ "$status" = "FAILED" -o "$status" = "CANCELED" ] && { end_ts=$(date +%s); echo "$st" >&2; jq -n --arg file "$file" --arg status "$status" --arg statement_id "$stmt_id" --arg start "$start_ts" --arg end "$end_ts" --arg tags "$TAGS_LINE" --arg error "$(echo "$st" | jq -c . 2>/dev/null || echo "$st")" '{file:$file,status:$status,statement_id:$statement_id,start_epoch_s:($start|tonumber),end_epoch_s:($end|tonumber),duration_s:(($end|tonumber)-($start|tonumber)),tags:($tags|split(",")|map(.|gsub("^\\s+|\\s+$";""))|map(select(.!=""))),error:$error}' >> "$RESULTS_JSONL"; exit 1; }; done
+                      }
+                      shopt -s nullglob
+                      files=( )
+                      if [ -d "$COMMON_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                      if [ -d "$ENV_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                      TAGS_FILTER='${{ parameters.tags }}'
+                      to_lower() { awk '{print tolower($0)}'; }
+                      match_tags() {
+                        local file="$1"; [ -z "$TAGS_FILTER" ] && return 0
+                        local want; IFS=',' read -r -a want <<< "$(echo "$TAGS_FILTER" | tr -d ' ' | to_lower)"
+                        local header; header=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 || true)
+                        [ -z "$header" ] && return 1
+                        local have; have=$(echo "$header" | cut -d':' -f2- | tr ',' '\n' | tr -d ' ' | to_lower)
+                        for t in "${want[@]}"; do if echo "$have" | grep -q "\b$t\b"; then return 0; fi; done
+                        return 1
+                      }
+                      failures=0; ran=0; for f in "${files[@]}"; do if match_tags "$f"; then if ! run_sql_file "$f"; then failures=$((failures+1)); fi; ran=$((ran+1)); else echo "Skipping (no matching tag): $f"; fi; done
+                      jq -n --arg ran "$ran" --arg failures "$failures" '{ran: ($ran|tonumber), failures: ($failures|tonumber)}' > "$SUMMARY_JSON"; END_TS=$(date +%s); tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson end "$END_TS" '. + {end_epoch_s: $end}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"; echo "Wrote results to $RESULTS_DIR"; [ "$failures" -eq 0 ]
+
+                - task: PublishBuildArtifacts@1
+                  displayName: 'Publish SQL Results (UAT)'
+                  inputs:
+                    PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/uat'
+                    ArtifactName: 'sql-results-uat'
+                    publishLocation: 'Container'
+                  condition: always()
+
+  - stage: DeployProd
+    displayName: 'Run SQL to Prod'
+    condition: eq(variables['Build.SourceBranch'], 'refs/heads/main')
+    variables:
+      - group: dbx-prod-vars
+      - group: dbx-unity-prod-vars
+      - group: dbx-azure-prod-vars
+      - group: dbx-common
+    jobs:
+      - deployment: RunSQLProd
+        displayName: 'Execute SQL (Prod)'
+        environment: prod
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: AzureCLI@2
+                  displayName: 'Login (Federated)'
+                  inputs:
+                    azureSubscription: 'cbs-data-preprod-mi-reporting-dev'
+                    addSpnToEnvironment: true
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      echo "##vso[task.setvariable variable=servicePrincipalId]$servicePrincipalId"
+                      echo "##vso[task.setvariable variable=idToken]$idToken"
+                      echo "##vso[task.setvariable variable=tenantId]$tenantId"
+                - task: Bash@3
+                  displayName: 'Azure CLI Login (OIDC)'
+                  inputs:
+                    targetType: inline
+                    script: >-
+                      az login --service-principal --username='$(servicePrincipalId)' --tenant='$(tenantId)'
+                      --federated-token='$(idToken)' --allow-no-subscriptions
+                - task: Bash@3
+                  displayName: 'Execute SQL Files (Prod)'
+                  inputs:
+                    targetType: inline
+                    script: |
+                      set -euo pipefail
+                      sudo apt-get update -y && sudo apt-get install -y jq gettext-base
+                      : "${DATABRICKS_HOST:=$(databricks_host)}"
+                      DBX_TOKEN=$(az account get-access-token --resource=https://databricks.azure.net/ --query accessToken -o tsv)
+                      WAREHOUSE_ID='${{ parameters.warehouseIdOverride }}'
+                      if [ -z "$WAREHOUSE_ID" ]; then WAREHOUSE_ID="$(databricks_sql_warehouse_id)"; fi
+                      if [ -z "$WAREHOUSE_ID" ] && [ -n "$(databricks_sql_warehouse_name)" ]; then
+                        WAREHOUSE_ID=$(curl -sfS -H "Authorization: Bearer $DBX_TOKEN" "$DATABRICKS_HOST/api/2.0/sql/warehouses" | jq -r --arg NAME "$(databricks_sql_warehouse_name)" '.warehouses[] | select(.name==$NAME) | .id' | head -n1 || true)
+                      fi
+                      if [ -z "$WAREHOUSE_ID" ]; then echo "Missing warehouse id/name" >&2; exit 1; fi
+                      ROOT_PATH='${{ parameters.sqlPath }}'; ENV_PATH="$ROOT_PATH/prod"; COMMON_PATH="$ROOT_PATH/common"; RESULTS_DIR="$(Build.ArtifactStagingDirectory)/sql-results/prod"; rm -rf "$RESULTS_DIR" && mkdir -p "$RESULTS_DIR"; RESULTS_JSONL="$RESULTS_DIR/result.jsonl"; SUMMARY_JSON="$RESULTS_DIR/summary.json"; START_TS=$(date +%s); jq -n --arg env "prod" --arg host "$DATABRICKS_HOST" --arg wh "$WAREHOUSE_ID" --arg tags "${{ parameters.tags }}" --arg root "${{ parameters.sqlPath }}" --argjson start "$START_TS" '{environment:$env, databricks_host:$host, warehouse_id:$wh, tags:$tags, sql_root:$root, start_epoch_s:$start}' > "$RESULTS_DIR/metadata.json"
+                      run_sql_file() {
+                        local file="$1"; echo "--- Executing: $file";
+                        local TAGS_LINE; TAGS_LINE=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 | cut -d':' -f2- | tr -d '\r' | tr -d '|' || true)
+                        local vars; vars=$(grep -o '\${[A-Za-z0-9_][A-Za-z0-9_]*}' "$file" | tr -d '${}' | sort -u | awk '{printf "$%s ", toupper($1)}' || true)
+                        local rendered; if [ -n "$vars" ]; then rendered=$(envsubst "$vars" < "$file"); else rendered=$(cat "$file"); fi
+                        local payload; payload=$(jq -n --arg w "$WAREHOUSE_ID" --arg q "$rendered" '{warehouse_id: $w, statement: $q, wait_timeout: "120s"}')
+                        local start_ts end_ts; start_ts=$(date +%s)
+                        local submit; submit=$(curl -sfS -X POST "$DATABRICKS_HOST/api/2.0/sql/statements" -H "Authorization: Bearer $DBX_TOKEN" -H "Content-Type: application/json" -d "$payload")
+                        local stmt_id; stmt_id=$(echo "$submit" | jq -r .statement_id)
+                        while true; do sleep 2; local st; st=$(curl -sfS "$DATABRICKS_HOST/api/2.0/sql/statements/$stmt_id" -H "Authorization: Bearer $DBX_TOKEN"); local status; status=$(echo "$st" | jq -r .status.state); [ "$status" = "SUCCEEDED" ] && { end_ts=$(date +%s); jq -n --arg file "$file" --arg status "$status" --arg statement_id "$stmt_id" --arg start "$start_ts" --arg end "$end_ts" --arg tags "$TAGS_LINE" '{file:$file,status:$status,statement_id:$statement_id,start_epoch_s:($start|tonumber),end_epoch_s:($end|tonumber),duration_s:(($end|tonumber)-($start|tonumber)),tags:($tags|split(",")|map(.|gsub("^\\s+|\\s+$";""))|map(select(.!="")))}' >> "$RESULTS_JSONL"; break; }; [ "$status" = "FAILED" -o "$status" = "CANCELED" ] && { end_ts=$(date +%s); echo "$st" >&2; jq -n --arg file "$file" --arg status "$status" --arg statement_id "$stmt_id" --arg start "$start_ts" --arg end "$end_ts" --arg tags "$TAGS_LINE" --arg error "$(echo "$st" | jq -c . 2>/dev/null || echo "$st")" '{file:$file,status:$status,statement_id:$statement_id,start_epoch_s:($start|tonumber),end_epoch_s:($end|tonumber),duration_s:(($end|tonumber)-($start|tonumber)),tags:($tags|split(",")|map(.|gsub("^\\s+|\\s+$";""))|map(select(.!=""))),error:$error}' >> "$RESULTS_JSONL"; exit 1; }; done
+                      }
+                      shopt -s nullglob
+                      files=( )
+                      if [ -d "$COMMON_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                      if [ -d "$ENV_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                      TAGS_FILTER='${{ parameters.tags }}'
+                      to_lower() { awk '{print tolower($0)}'; }
+                      match_tags() {
+                        local file="$1"; [ -z "$TAGS_FILTER" ] && return 0
+                        local want; IFS=',' read -r -a want <<< "$(echo "$TAGS_FILTER" | tr -d ' ' | to_lower)"
+                        local header; header=$(head -n 20 "$file" | grep -iE '^\s*--\s*tags\s*:' | head -n1 || true)
+                        [ -z "$header" ] && return 1
+                        local have; have=$(echo "$header" | cut -d':' -f2- | tr ',' '\n' | tr -d ' ' | to_lower)
+                        for t in "${want[@]}"; do if echo "$have" | grep -q "\b$t\b"; then return 0; fi; done
+                        return 1
+                      }
+                      failures=0; ran=0; for f in "${files[@]}"; do if match_tags "$f"; then if ! run_sql_file "$f"; then failures=$((failures+1)); fi; ran=$((ran+1)); else echo "Skipping (no matching tag): $f"; fi; done
+                      jq -n --arg ran "$ran" --arg failures "$failures" '{ran: ($ran|tonumber), failures: ($failures|tonumber)}' > "$SUMMARY_JSON"; END_TS=$(date +%s); tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson end "$END_TS" '. + {end_epoch_s: $end}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"; echo "Wrote results to $RESULTS_DIR"; [ "$failures" -eq 0 ]
+
+                - task: PublishBuildArtifacts@1
+                  displayName: 'Publish SQL Results (Prod)'
+                  inputs:
+                    PathtoPublish: '$(Build.ArtifactStagingDirectory)/sql-results/prod'
+                    ArtifactName: 'sql-results-prod'
+                    publishLocation: 'Container'
+                  condition: always()
+      - job: SummarizeDev
+        displayName: 'Build Deployment Report (Dev)'
+        dependsOn: RunSQLDev
+        condition: always()
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              downloadPath: '$(Pipeline.Workspace)/dl'
+              artifactName: 'sql-results-dev'
+            displayName: 'Download SQL Results (Dev)'
+
+          - task: Bash@3
+            displayName: 'Assemble deployment.json (Dev)'
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-dev'
+                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/dev'
+                mkdir -p "$OUT_DIR"
+                RESULTS='[]'
+                SUMMARY='{ "ran": 0, "failures": 0 }'
+                META='{}'
+                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+                jq -n \
+                  --arg env "dev" \
+                  --arg buildId "$(Build.BuildId)" \
+                  --arg buildNumber "$(Build.BuildNumber)" \
+                  --arg defName "$(Build.DefinitionName)" \
+                  --arg branch "$(Build.SourceBranch)" \
+                  --arg sha "$(Build.SourceVersion)" \
+                  --arg sqlPath "${{ parameters.sqlPath }}" \
+                  --arg tags "${{ parameters.tags }}" \
+                  --argjson results "$RESULTS" \
+                  --argjson summary "$SUMMARY" \
+                  --argjson meta "$META" \
+                  '{
+                    environment: $env,
+                    build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha },
+                    parameters: { sqlPath: $sqlPath, tags: $tags },
+                    databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) },
+                    timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) },
+                    summary: $summary,
+                    results: $results,
+                    generated_at_epoch_s: now|floor
+                  }' > "$OUT_DIR/deployment.json"
+                echo "Wrote $OUT_DIR/deployment.json"
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Deployment Report (Dev)'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/dev'
+              ArtifactName: 'deployment-report-dev'
+              publishLocation: 'Container'
+            condition: always()
+      - job: SummarizeTest
+        displayName: 'Build Deployment Report (Test)'
+        dependsOn: RunSQLTest
+        condition: always()
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              downloadPath: '$(Pipeline.Workspace)/dl'
+              artifactName: 'sql-results-test'
+            displayName: 'Download SQL Results (Test)'
+
+          - task: Bash@3
+            displayName: 'Assemble deployment.json (Test)'
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-test'
+                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/test'
+                mkdir -p "$OUT_DIR"
+                RESULTS='[]'
+                SUMMARY='{ "ran": 0, "failures": 0 }'
+                META='{}'
+                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+                jq -n \
+                  --arg env "test" \
+                  --arg buildId "$(Build.BuildId)" \
+                  --arg buildNumber "$(Build.BuildNumber)" \
+                  --arg defName "$(Build.DefinitionName)" \
+                  --arg branch "$(Build.SourceBranch)" \
+                  --arg sha "$(Build.SourceVersion)" \
+                  --arg sqlPath "${{ parameters.sqlPath }}" \
+                  --arg tags "${{ parameters.tags }}" \
+                  --argjson results "$RESULTS" \
+                  --argjson summary "$SUMMARY" \
+                  --argjson meta "$META" \
+                  '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Deployment Report (Test)'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/test'
+              ArtifactName: 'deployment-report-test'
+              publishLocation: 'Container'
+            condition: always()
+      - job: SummarizeUAT
+        displayName: 'Build Deployment Report (UAT)'
+        dependsOn: RunSQLUAT
+        condition: always()
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              downloadPath: '$(Pipeline.Workspace)/dl'
+              artifactName: 'sql-results-uat'
+            displayName: 'Download SQL Results (UAT)'
+
+          - task: Bash@3
+            displayName: 'Assemble deployment.json (UAT)'
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-uat'
+                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/uat'
+                mkdir -p "$OUT_DIR"
+                RESULTS='[]'
+                SUMMARY='{ "ran": 0, "failures": 0 }'
+                META='{}'
+                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+                jq -n \
+                  --arg env "uat" \
+                  --arg buildId "$(Build.BuildId)" \
+                  --arg buildNumber "$(Build.BuildNumber)" \
+                  --arg defName "$(Build.DefinitionName)" \
+                  --arg branch "$(Build.SourceBranch)" \
+                  --arg sha "$(Build.SourceVersion)" \
+                  --arg sqlPath "${{ parameters.sqlPath }}" \
+                  --arg tags "${{ parameters.tags }}" \
+                  --argjson results "$RESULTS" \
+                  --argjson summary "$SUMMARY" \
+                  --argjson meta "$META" \
+                  '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Deployment Report (UAT)'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/uat'
+              ArtifactName: 'deployment-report-uat'
+              publishLocation: 'Container'
+            condition: always()
+      - job: SummarizeProd
+        displayName: 'Build Deployment Report (Prod)'
+        dependsOn: RunSQLProd
+        condition: always()
+        steps:
+          - task: DownloadBuildArtifacts@0
+            inputs:
+              downloadPath: '$(Pipeline.Workspace)/dl'
+              artifactName: 'sql-results-prod'
+            displayName: 'Download SQL Results (Prod)'
+
+          - task: Bash@3
+            displayName: 'Assemble deployment.json (Prod)'
+            inputs:
+              targetType: inline
+              script: |
+                set -euo pipefail
+                IN_DIR='$(Pipeline.Workspace)/dl/sql-results-prod'
+                OUT_DIR='$(Build.ArtifactStagingDirectory)/deployment/prod'
+                mkdir -p "$OUT_DIR"
+                RESULTS='[]'
+                SUMMARY='{ "ran": 0, "failures": 0 }'
+                META='{}'
+                if [ -f "$IN_DIR/result.jsonl" ]; then RESULTS=$(jq -s 'map(.)' "$IN_DIR/result.jsonl"); fi
+                if [ -f "$IN_DIR/summary.json" ]; then SUMMARY=$(cat "$IN_DIR/summary.json"); fi
+                if [ -f "$IN_DIR/metadata.json" ]; then META=$(cat "$IN_DIR/metadata.json"); fi
+                jq -n \
+                  --arg env "prod" \
+                  --arg buildId "$(Build.BuildId)" \
+                  --arg buildNumber "$(Build.BuildNumber)" \
+                  --arg defName "$(Build.DefinitionName)" \
+                  --arg branch "$(Build.SourceBranch)" \
+                  --arg sha "$(Build.SourceVersion)" \
+                  --arg sqlPath "${{ parameters.sqlPath }}" \
+                  --arg tags "${{ parameters.tags }}" \
+                  --argjson results "$RESULTS" \
+                  --argjson summary "$SUMMARY" \
+                  --argjson meta "$META" \
+                  '{ environment: $env, build: { id: ($buildId|tonumber), number: $buildNumber, definition: $defName, branch: $branch, commit: $sha }, parameters: { sqlPath: $sqlPath, tags: $tags }, databricks: { host: ($meta.databricks_host // null), warehouse_id: ($meta.warehouse_id // null) }, timing: { start_epoch_s: ($meta.start_epoch_s // null), end_epoch_s: ($meta.end_epoch_s // null) }, summary: $summary, results: $results, generated_at_epoch_s: now|floor }' > "$OUT_DIR/deployment.json"
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Deployment Report (Prod)'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/deployment/prod'
+              ArtifactName: 'deployment-report-prod'
+              publishLocation: 'Container'
+            condition: always()
