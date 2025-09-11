@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS ${SCHEMA_ORCA_METADATA}.job_runs (
   name STRING
 );
 
-Note: If neither warehouse id nor name is defined for the environment, you can override it at queue time with the pipeline parameter warehouseIdOverride.
+Note: If neither warehouse id nor name is defined for the environment, the job fails fast. Define one in the environment's variable group.
 
 SQL structure and ordering
 - Place common scripts in table_deploy_pipeline/sql/common (executed first)
@@ -71,15 +71,11 @@ SQL structure and ordering
   - 200_seed_data.sql
 
 Tagging and selective execution
-- Add a header line with tags in each file that you want to selectively run:
+- Add a header line with tags in each file you may want to selectively run:
   -- tags: ddl,seed,hotfix
-- Run the pipeline with parameter tags set to a comma-separated list to include only files that have at least one of those tags. Examples:
-  - Run only DDL: set tags = "ddl"
-  - Run only hotfixes: set tags = "hotfix"
-  - Run DDL and seed: set tags = "ddl,seed"
-- If tags parameter is empty, all files are considered (no tag filtering).
+- The set of tags to execute is controlled by deploy.json (per environment), not a pipeline parameter.
 
-Config file-based tags (no pipeline change)
+Config file-based tags (no pipeline edits)
 - You can control which tags to include per environment by committing a `deploy.json` file alongside your SQL.
 - Locations checked, in priority order:
   1) `table_deploy_pipeline/sql/<env>/deploy.json`
@@ -132,9 +128,7 @@ Environment approvals
   - You can combine approvals with other checks (branch control, work item linking, or business hours) per environment.
 
 Parameters
-- sqlPath (default: table_deploy_pipeline/sql): root path to SQL files
-- warehouseIdOverride (default: empty): explicit warehouse id to use; takes precedence over variable groups
-- tags (default: empty): comma-separated list of tags to include; only files with at least one matching tag will run
+- None. The SQL root path is fixed to `table_deploy_pipeline/sql`. The SQL Warehouse is resolved from variable groups by ID or by name. Tags come from `deploy.json`.
 
 How it works
 1) AzureCLI@2 obtains OIDC variables and logs in to Azure
@@ -147,10 +141,7 @@ Usage
 1) Commit your SQL files under table_deploy_pipeline/sql/common and table_deploy_pipeline/sql/<env>
 2) Ensure variable groups contain databricks_host and a warehouse id or name for each environment
 3) Create a new Pipeline in Azure DevOps pointing to table_deploy_pipeline/azure-pipelines.yml
-4) (Optional) Override parameters at queue time:
-   - sqlPath: alternative folder to execute
-   - warehouseIdOverride: explicit warehouse id
-   - tags: comma-separated tags to include
+4) Queue the pipeline; no parameters required.
 
 Example SQL
 Use fully qualified names or explicit USE statements to control context:
