@@ -232,7 +232,6 @@ def main() -> int:
         payload = {
             "warehouse_id": warehouse_id,
             "statement": rendered,
-            "wait_timeout": "120s",
         }
         start_ts = int(time.time())
         error_detail = None
