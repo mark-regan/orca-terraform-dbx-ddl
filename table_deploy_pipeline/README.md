@@ -79,6 +79,29 @@ Tagging and selective execution
   - Run DDL and seed: set tags = "ddl,seed"
 - If tags parameter is empty, all files are considered (no tag filtering).
 
+Config file-based tags (no pipeline change)
+- You can control which tags to include per environment by committing a `deploy.json` file alongside your SQL.
+- Locations checked, in priority order:
+  1) `table_deploy_pipeline/sql/<env>/deploy.json`
+  2) `table_deploy_pipeline/sql/common/deploy.json`
+- Structure:
+  {
+    "includeCommon": true,
+    "tags": ["ddl", "seed"]
+  }
+- Precedence: the pipeline parameter `tags` overrides `deploy.json` if provided; if the parameter is empty, the pipeline reads tags from the first `deploy.json` found.
+
+Include common folder control
+- `includeCommon` in `deploy.json` controls whether scripts in `sql/common` run alongside the environment folder.
+- Defaults to true if omitted; set to false to run only `sql/<env>` files.
+
+Environment samples added
+- Created environment folders with sample files and `deploy.json`:
+  - `sql/dev/` (with deploy.json and examples)
+  - `sql/test/` (sample file + deploy.json)
+  - `sql/uat/` (sample file + deploy.json)
+  - `sql/prod/` (sample file + deploy.json)
+
 Authentication details
 - The pipeline logs into Azure via OIDC with AzureCLI@2 using your service connection
 - It acquires an AAD access token for resource https://databricks.azure.net/

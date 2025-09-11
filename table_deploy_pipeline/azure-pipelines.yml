@@ -201,7 +201,23 @@ stages:
                 # Execute in deterministic order: common then env-specific
                 shopt -s nullglob
                 files=( )
-                if [ -d "$COMMON_PATH" ]; then
+                # Read tags/includeCommon from deploy.json if not provided via parameter
+                # TAGS_FILTER already loaded from deploy.json if parameter empty
+                CFG_ENV="$ENV_PATH/deploy.json"
+                CFG_COMMON="$COMMON_PATH/deploy.json"
+                if [ -z "$TAGS_FILTER" ]; then
+                  if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV");
+                  elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi
+                fi
+                INCLUDE_COMMON=1
+                ic=""
+                if [ -f "$CFG_ENV" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_ENV"); fi
+                if [ -z "$ic" ] && [ -f "$CFG_COMMON" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_COMMON"); fi
+                if [ "$ic" = "false" ] || [ "$ic" = "0" ]; then INCLUDE_COMMON=0; fi
+                # Persist include_common into metadata
+                tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson ic "$INCLUDE_COMMON" '. + {include_common: ($ic==1)}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"
+
+                if [ -d "$COMMON_PATH" ] && [ "$INCLUDE_COMMON" -eq 1 ]; then
                   while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z)
                 fi
                 if [ -d "$ENV_PATH" ]; then
@@ -213,8 +229,7 @@ stages:
                   exit 0
                 fi
 
-                # Tag filtering
-                TAGS_FILTER='${{ parameters.tags }}'
+                # TAGS_FILTER already loaded from deploy.json if parameter empty
                 to_lower() { awk '{print tolower($0)}'; }
                 match_tags() {
                   local file="$1"
@@ -322,9 +337,16 @@ stages:
                 }
                 shopt -s nullglob
                 files=( )
-                if [ -d "$COMMON_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                # Read tags/includeCommon from deploy.json if not provided via parameter
+                TAGS_FILTER='${{ parameters.tags }}'
+                CFG_ENV="$ENV_PATH/deploy.json"; CFG_COMMON="$COMMON_PATH/deploy.json"
+                if [ -z "$TAGS_FILTER" ]; then if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV"); elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi; fi
+                INCLUDE_COMMON=1; ic=""; if [ -f "$CFG_ENV" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_ENV"); fi; if [ -z "$ic" ] && [ -f "$CFG_COMMON" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_COMMON"); fi; if [ "$ic" = "false" ] || [ "$ic" = "0" ]; then INCLUDE_COMMON=0; fi
+                tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson ic "$INCLUDE_COMMON" '. + {include_common: ($ic==1)}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"
+                if [ -d "$COMMON_PATH" ] && [ "$INCLUDE_COMMON" -eq 1 ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
                 if [ -d "$ENV_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z); fi
                 TAGS_FILTER='${{ parameters.tags }}'
+                CFG_ENV="$ENV_PATH/deploy.json"; CFG_COMMON="$COMMON_PATH/deploy.json"; if [ -z "$TAGS_FILTER" ]; then if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV"); elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi; fi
                 to_lower() { awk '{print tolower($0)}'; }
                 match_tags() {
                   local file="$1"; [ -z "$TAGS_FILTER" ] && return 0
@@ -411,9 +433,16 @@ stages:
                       }
                       shopt -s nullglob
                       files=( )
-                      if [ -d "$COMMON_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                      # Read tags/includeCommon from deploy.json if not provided via parameter
+                      # TAGS_FILTER already loaded from deploy.json if parameter empty
+                      CFG_ENV="$ENV_PATH/deploy.json"; CFG_COMMON="$COMMON_PATH/deploy.json"
+                      if [ -z "$TAGS_FILTER" ]; then if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV"); elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi; fi
+                      INCLUDE_COMMON=1; ic=""; if [ -f "$CFG_ENV" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_ENV"); fi; if [ -z "$ic" ] && [ -f "$CFG_COMMON" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_COMMON"); fi; if [ "$ic" = "false" ] || [ "$ic" = "0" ]; then INCLUDE_COMMON=0; fi
+                      tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson ic "$INCLUDE_COMMON" '. + {include_common: ($ic==1)}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"
+                      if [ -d "$COMMON_PATH" ] && [ "$INCLUDE_COMMON" -eq 1 ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
                       if [ -d "$ENV_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z); fi
-                      TAGS_FILTER='${{ parameters.tags }}'
+                      # TAGS_FILTER already loaded from deploy.json if parameter empty
+                      CFG_ENV="$ENV_PATH/deploy.json"; CFG_COMMON="$COMMON_PATH/deploy.json"; if [ -z "$TAGS_FILTER" ]; then if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV"); elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi; fi
                       to_lower() { awk '{print tolower($0)}'; }
                       match_tags() {
                         local file="$1"; [ -z "$TAGS_FILTER" ] && return 0
@@ -499,9 +528,16 @@ stages:
                       }
                       shopt -s nullglob
                       files=( )
-                      if [ -d "$COMMON_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
+                      # Read tags/includeCommon from deploy.json if not provided via parameter
+                      TAGS_FILTER='${{ parameters.tags }}'
+                      CFG_ENV="$ENV_PATH/deploy.json"; CFG_COMMON="$COMMON_PATH/deploy.json"
+                      if [ -z "$TAGS_FILTER" ]; then if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV"); elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi; fi
+                      INCLUDE_COMMON=1; ic=""; if [ -f "$CFG_ENV" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_ENV"); fi; if [ -z "$ic" ] && [ -f "$CFG_COMMON" ]; then ic=$(jq -r 'try .includeCommon // empty' "$CFG_COMMON"); fi; if [ "$ic" = "false" ] || [ "$ic" = "0" ]; then INCLUDE_COMMON=0; fi
+                      tmp="$RESULTS_DIR/metadata.tmp" && jq --argjson ic "$INCLUDE_COMMON" '. + {include_common: ($ic==1)}' "$RESULTS_DIR/metadata.json" > "$tmp" && mv "$tmp" "$RESULTS_DIR/metadata.json"
+                      if [ -d "$COMMON_PATH" ] && [ "$INCLUDE_COMMON" -eq 1 ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$COMMON_PATH" -type f -name '*.sql' -print0 | sort -z); fi
                       if [ -d "$ENV_PATH" ]; then while IFS= read -r -d '' f; do files+=("$f"); done < <(find "$ENV_PATH" -type f -name '*.sql' -print0 | sort -z); fi
                       TAGS_FILTER='${{ parameters.tags }}'
+                      CFG_ENV="$ENV_PATH/deploy.json"; CFG_COMMON="$COMMON_PATH/deploy.json"; if [ -z "$TAGS_FILTER" ]; then if [ -f "$CFG_ENV" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_ENV"); elif [ -f "$CFG_COMMON" ]; then TAGS_FILTER=$(jq -r 'try .tags | join(",") // empty' "$CFG_COMMON"); fi; fi
                       to_lower() { awk '{print tolower($0)}'; }
                       match_tags() {
                         local file="$1"; [ -z "$TAGS_FILTER" ] && return 0
