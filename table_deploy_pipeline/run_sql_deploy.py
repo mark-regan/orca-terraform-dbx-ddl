@@ -10,18 +10,54 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 import subprocess
 
+try:
+    from azure.identity import AzureCliCredential, DefaultAzureCredential
+except Exception:  # noqa: BLE001
+    AzureCliCredential = None  # type: ignore
+    DefaultAzureCredential = None  # type: ignore
 
-def get_env_token() -> str:
+
+def acquire_aad_token() -> str:
+    """Acquire an AAD access token for the Databricks resource using azure.identity.
+
+    Order of precedence:
+      1) DBX_TOKEN env var (use as-is)
+      2) AzureCliCredential (OIDC login in pipeline makes this available)
+      3) DefaultAzureCredential (covers managed identity and others)
+      4) Fallback to `az account get-access-token --resource=https://databricks.azure.net/`
+    """
+    # 1) Explicit override
     token = os.environ.get("DBX_TOKEN", "").strip()
     if token:
         return token
+
+    # Scope for Databricks resource app ID
+    scope = "2ff814a6-3304-4ab8-85cb-cd0e6f879c1d/.default"
+
+    # 2) Azure CLI Credential
+    if AzureCliCredential is not None:
+        try:
+            cli = AzureCliCredential()
+            return cli.get_token(scope).token
+        except Exception:
+            pass
+
+    # 3) Default Azure Credential
+    if DefaultAzureCredential is not None:
+        try:
+            dac = DefaultAzureCredential()
+            return dac.get_token(scope).token
+        except Exception:
+            pass
+
+    # 4) Fallback to az CLI command
     try:
         out = subprocess.check_output(
             [
                 "az",
                 "account",
                 "get-access-token",
-                "--resource=https://databricks.azure.net/",
+                "--resource=2ff814a6-3304-4ab8-85cb-cd0e6f879c1d",
                 "--query",
                 "accessToken",
                 "-o",
@@ -32,7 +68,7 @@ def get_env_token() -> str:
         if not out:
             raise RuntimeError("Empty token from Azure CLI")
         return out
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise RuntimeError(f"Failed to acquire AAD token: {e}")
 
 
@@ -134,7 +170,7 @@ def main() -> int:
         print(f"No SQL directories found at {env_dir} or {common_dir}", file=sys.stderr)
         return 1
 
-    token = get_env_token()
+    token = acquire_aad_token()
     warehouse_id = resolve_warehouse_id(host, token, args.warehouse_id or None, args.warehouse_name or None)
 
     tags_filter, include_common = load_deploy_config(env_dir, common_dir)
@@ -235,4 +271,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -61,6 +61,7 @@ stages:
                     script: |
                       set -euo pipefail
                       sudo apt-get update -y && sudo apt-get install -y jq
+                      python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
                       if [ -z "$DATABRICKS_HOST" ]; then echo "Databricks host (databricks_host) not set" >&2; exit 1; fi
                       python3 table_deploy_pipeline/run_sql_deploy.py \
@@ -143,6 +144,7 @@ stages:
                     script: |
                       set -euo pipefail
                       sudo apt-get update -y && sudo apt-get install -y jq
+                      python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
                       python3 table_deploy_pipeline/run_sql_deploy.py \
                         --env test \
@@ -224,6 +226,7 @@ stages:
                     script: |
                       set -euo pipefail
                       sudo apt-get update -y && sudo apt-get install -y jq
+                      python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
                       python3 table_deploy_pipeline/run_sql_deploy.py \
                         --env uat \
@@ -305,6 +308,7 @@ stages:
                     script: |
                       set -euo pipefail
                       sudo apt-get update -y && sudo apt-get install -y jq
+                      python3 -m pip install --user azure-identity
                       : "${DATABRICKS_HOST:=$(databricks_host)}"
                       python3 table_deploy_pipeline/run_sql_deploy.py \
                         --env prod \
@@ -340,4 +344,3 @@ stages:
                     ArtifactName: 'deployment-report-prod'
                     publishLocation: 'Container'
                   condition: always()
-
